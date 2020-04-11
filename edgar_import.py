@@ -7,3 +7,4 @@ df = pd.read_csv('C:/Users/brent/Downloads/num.txt', delimiter = '\t') #usecols 
 df.to_sql('pandas_db', engine)
 
 print(cols)
+#Test
