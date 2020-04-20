@@ -41,13 +41,15 @@ cols_to_drop = ['bas1','bas2','baph','countryma','stprma','cityma',
 sub = sub.drop(cols_to_drop, axis=1)
 
 # Convert date to date format
-# sub['period_new'] = pd.to_datetime(sub['period'], format='%Y%m%d').dt.strftime("%Y-%m-%d")
+#sub['changed'] = pd.to_datetime(sub['changed'], format='%Y%m%d').dt.strftime("%Y-%m-%d")
+#sub['period'] = pd.to_datetime(sub['period'], format='%Y%m%d').dt.strftime("%Y-%m-%d")
+#sub['filed'] = pd.to_datetime(sub['filed'], format='%Y%m%d').dt.strftime("%Y-%m-%d")
 
 # Check that data frame structure is as expected
 
 
 # Connect to postgres database
-engine = create_engine('postgresql://postgres:Bremor*74@localhost:5432/stock_master')
+engine = create_engine('postgresql://postgres:*********4@localhost:5432/stock_master')
 conn = engine.connect()
 meta = MetaData(engine)
 meta.reflect(schema='edgar')
@@ -57,7 +59,7 @@ num_stage = meta.tables['edgar.num_stage']
 conn.execute(num_stage.delete())
 
 # Insert to postgres database
-sub.to_sql('edgar.sub_stage', engine)
+sub.to_sql(name='sub_stage', con=engine, schema='edgar', index=False, if_exists='append')
 
 # Close connection
 

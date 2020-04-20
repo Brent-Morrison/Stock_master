@@ -10,22 +10,22 @@ CREATE TABLE edgar.sub_stage
 	cik integer NOT NULL,
 	name text NOT NULL,
 	sic smallint,
-	countryba char (2) NOT NULL,
+	countryba char (2),
 	stprba char (2),
-	cityba text NOT NULL,
+	cityba text,
 	zipba varchar (10),
 	former text,
-	changed date,
+	changed integer,  -- cast to date
 	afs char (5),
-	wksi boolean NOT NULL,
-	fye integer NOT NULL,
+	wksi integer NOT NULL,  --cast to boolean
+	fye integer,
 	form varchar (10) NOT NULL,
-	period date NOT NULL,
+	period integer NOT NULL,  -- cast to date
 	fy smallint NOT NULL,
 	fp char (2) NOT NULL,
-	filed date NOT NULL,
-	prevrpt boolean NOT NULL,
-	detail boolean NOT NULL,
+	filed integer NOT NULL, -- cast to date
+	prevrpt integer NOT NULL,  --cast to boolean
+	detail integer NOT NULL,
 	instance varchar (32) NOT NULL,
 	nciks smallint NOT NULL,
 	aciks text
