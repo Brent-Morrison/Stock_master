@@ -81,8 +81,6 @@ CREATE TABLE edgar.num_stage
 
 ALTER TABLE edgar.num_stage OWNER to postgres;
 
---INSERT INTO edgar.num_stage VALUES ('TEST', 'TEST', 'TEST', 'TEST', 1000, 'TEST', 'TEST', 2000, 'some text');
-
 
 
 
@@ -93,5 +91,19 @@ ALTER TABLE edgar.num_stage OWNER to postgres;
 --COPY edgar.num_stage (adsh, tag, version, coreg, ddate, qtrs, uom, value, footnote) 
 --FROM 'C:\Users\brent\Downloads\num.txt' DELIMITER E'\t' CSV HEADER;
 
-SELECT * FROM edgar.sub_stage;
-SELECT * FROM edgar.tag_stage;
+
+
+
+--=============================================================================
+-- Test
+--=============================================================================
+
+SELECT COUNT(*) FROM edgar.sub_stage;
+SELECT COUNT(*) FROM edgar.tag_stage;
+SELECT COUNT(*) FROM edgar.num_stage;
+
+DELETE FROM edgar.sub_stage;
+DELETE FROM edgar.tag_stage;
+DELETE FROM edgar.num_stage;
+
+--INSERT INTO edgar.num_stage VALUES ('TEST', 'TEST', 'TEST', 'TEST', 1000, 'TEST', 'TEST', 2000, 'some text');

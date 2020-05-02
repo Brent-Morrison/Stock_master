@@ -34,6 +34,17 @@ url_list = [base_url+str(y)+'q'+str(q)+'.zip'
 print(url_list)
 
 
+# Connect to postgres database
+engine = create_engine('postgresql://postgres:'+password+
+                        '@localhost:5432/stock_master')
+conn = engine.connect()
+meta = MetaData(engine)
+meta.reflect(schema='edgar')
+sub_stage = meta.tables['edgar.sub_stage']
+tag_stage = meta.tables['edgar.tag_stage']
+num_stage = meta.tables['edgar.num_stage']
+
+
 # Looped implementation
 for url in url_list:
     resp = requests.get(url)
@@ -60,9 +71,10 @@ for url in url_list:
         'zipma', 'mas1','mas2','countryinc','stprinc','ein',
         'accepted']
     sub = sub.drop(sub_cols_to_drop, axis=1)
-    sub = sub[['adsh','cik','name','sic','countryba','stprba','cityba',
-        'zipba','former','changed','afs','wksi','fye','form' 'period','fy',
-        'fp','filed','prevrpt','detail','instance','nciks','aciks']]
+    # THIS NEEDS DE-BUGGING
+    #sub = sub[['adsh','cik','name','sic','countryba','stprba','cityba',
+    #    'zipba','former','changed','afs','wksi','fye','form' 'period','fy',
+    #    'fp','filed','prevrpt','detail','instance','nciks','aciks']]
     tag = zf_files_dict['tag.txt']
     tag = tag[['tag','version','custom','abstract','datatype','iord','crdr',
                 'tlabel','doc']]
@@ -70,100 +82,23 @@ for url in url_list:
     num = num[['adsh','tag','version','ddate','qtrs','uom',
                 'coreg','value','footnote']]
 
-    # Connect to postgres database
-    # ADD IF HERE TO PREVENT RECONNECTION ON EACH LOOP
-    engine = create_engine('postgresql://postgres:'+password+
-                            '@localhost:5432/stock_master')
-    conn = engine.connect()
-    meta = MetaData(engine)
-    meta.reflect(schema='edgar')
-    sub_stage = meta.tables['edgar.sub_stage']
-    tag_stage = meta.tables['edgar.tag_stage']
-    num_stage = meta.tables['edgar.num_stage']
-
     # Clear table contents (this is redundent if 'to_sql' specifies replace)
-    conn.execute(sub_stage.delete())
+    #conn.execute(sub_stage.delete())
     #conn.execute(tag_stage.delete())
     #conn.execute(pre_stage.delete())
-    conn.execute(num_stage.delete())
+    #conn.execute(num_stage.delete())
 
     # Insert to postgres database
     sub.to_sql(name='sub_stage', con=engine, schema='edgar', 
                 index=False, if_exists='append')
-    #tag.to_sql(name='tag_stage', con=engine, schema='edgar', 
-    #            index=False, if_exists='append')
-    #pre.to_sql(name='pre_stage', con=engine, schema='edgar', 
-    #            index=False, if_exists='append')
+    tag.to_sql(name='tag_stage', con=engine, schema='edgar', 
+                index=False, if_exists='append')
     num.to_sql(name='num_stage', con=engine, schema='edgar', 
                 index=False, if_exists='append')
 
 # Close connection
 conn.close()
 
-
-
-
-
-# Single implementation
-url = 'https://www.sec.gov/files/dera/data/financial-statement-data-sets/2009q2.zip'
-resp = requests.get(url)
-zf = ZipFile(io.BytesIO(resp.content))
-zf_files = zf.infolist()
-zf_file_names = zf.namelist()
-
-# Loop over text files in the downloaded zip file and read to individual 
-# dataframes.  Exclude the readme file
-zf_files_dict = {}
-for zfile in zf_files:
-    if zfile.filename == 'readme.htm':
-        continue     
-    print(zfile.filename) 
-    zf_files_dict[zfile.filename] = pd.read_csv(zf.open(zfile.filename), 
-    delimiter = '\t', encoding='utf-8')
-
-# Extract to individual dataframes and unsure columns align to database table structure
-# We are only loading specific columns from sub
-sub_cols_to_drop = ['bas1','bas2','baph','countryma','stprma','cityma', 
-                    'zipma', 'mas1','mas2','countryinc','stprinc','ein',
-                    'accepted']
-sub = zf_files_dict['sub.txt']
-sub = sub.drop(sub_cols_to_drop, axis=1)
-tag = zf_files_dict['tag.txt']
-pre = zf_files_dict['pre.txt']
-num = zf_files_dict['num.txt']
-num = num[['adsh','tag','version','ddate','qtrs','uom','coreg','value','footnote']]
-
-# TEST TEXT FILE
-sub = pd.read_csv('C:/Users/brent/Documents/sub.txt', delimiter = '\t', encoding='utf-8') #, escapchar='\n'
-# We are only loading specific columns from sub
-
-
-
-# Convert date to date format (NO LONGER REQUIRED)
-# sub['changed'] = pd.to_datetime(sub['changed'], format='%Y%m%d').dt.strftime("%Y-%m-%d")
-# sub['period'] = pd.to_datetime(sub['period'], format='%Y%m%d').dt.strftime("%Y-%m-%d")
-# sub['filed'] = pd.to_datetime(sub['filed'], format='%Y%m%d').dt.strftime("%Y-%m-%d")
-
-# Check that data frame structure is as expected
-# TO DO 
-
-# Connect to postgres database
-engine = create_engine('postgresql://postgres:'+password+'@localhost:5432/stock_master')
-conn = engine.connect()
-meta = MetaData(engine)
-meta.reflect(schema='edgar')
-num_stage = meta.tables['edgar.num_stage']
-pre_stage = meta.tables['edgar.pre_stage']
-
-# Clear table contents (this is redundent if 'to_sql' specifies replace)
-conn.execute(num_stage.delete())
-
-# Insert to postgres database
-sub.to_sql(name='sub_stage', con=engine, schema='edgar', index=False, if_exists='append')
-num.to_sql(name='num_stage', con=engine, schema='edgar', index=False, if_exists='append')
-
-# Close connection
-conn.close()
 
 # References
 # https://stackoverflow.com/questions/26942476/reading-csv-zipped-files-in-python
