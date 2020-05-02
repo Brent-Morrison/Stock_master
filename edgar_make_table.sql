@@ -2,7 +2,7 @@
 -- Sub table (staging)
 --=============================================================================
 
-DROP TABLE edgar.sub_stage;
+--DROP TABLE edgar.sub_stage;
 
 CREATE TABLE edgar.sub_stage
 (
@@ -15,16 +15,16 @@ CREATE TABLE edgar.sub_stage
 	cityba text,
 	zipba varchar (10),
 	former text,
-	changed integer,  -- cast to date
+	changed integer,  				-- cast to date
 	afs char (5),
-	wksi integer NOT NULL,  --cast to boolean
+	wksi integer NOT NULL,  		-- cast to boolean
 	fye integer,
 	form varchar (10) NOT NULL,
-	period integer NOT NULL,  -- cast to date
+	period integer NOT NULL,  		-- cast to date
 	fy smallint NOT NULL,
 	fp char (2) NOT NULL,
-	filed integer NOT NULL, -- cast to date
-	prevrpt integer NOT NULL,  --cast to boolean
+	filed integer NOT NULL, 		-- cast to date
+	prevrpt integer NOT NULL, 		-- cast to boolean
 	detail integer NOT NULL,
 	instance varchar (32) NOT NULL,
 	nciks smallint NOT NULL,
@@ -40,47 +40,22 @@ ALTER TABLE edgar.sub_stage OWNER to postgres;
 -- Tag table (staging)
 --=============================================================================
 
---DROP TABLE edgar.tag_stage;
+DROP TABLE edgar.tag_stage;
 
 CREATE TABLE edgar.tag_stage
 (
 	tag text NOT NULL,
 	version varchar (20) NOT NULL,
-	custom boolean NOT NULL,
-	abstract boolean NOT NULL,
+	custom integer NOT NULL,		-- cast to boolean
+	abstract integer NOT NULL,		-- cast to boolean
 	datatype varchar (20),
 	iord char (1),
 	crdr char (1),
 	tlabel text,
-	foc text
+	doc text
 );
 
 ALTER TABLE edgar.tag_stage OWNER to postgres;
-
-
-
-
---=============================================================================
--- Num table (staging)
---=============================================================================
-
---DROP TABLE edgar.pre_stage;
-
-CREATE TABLE edgar.pre_stage
-(
-	adsh char (20) NOT NULL,
-	report integer NOT NULL,
-	line integer NOT NULL,
-	stmt varchar (2) NOT NULL,
-	inpth boolean NOT NULL,
-	rfile char (1) NOT NULL,
-	tag text NOT NULL,
-	version varchar (20) NOT NULL,
-	plabel text NOT NULL,
-	negating boolean
-);
-
-ALTER TABLE edgar.pre_stage OWNER to postgres;
 
 
 
@@ -96,7 +71,7 @@ CREATE TABLE edgar.num_stage
 	adsh char (20) NOT NULL,
 	tag text NOT NULL,
 	version varchar (20) NOT NULL,
-	ddate date NOT NULL,
+	ddate integer NOT NULL,			-- cast to date
 	qtrs smallint NOT NULL,
 	uom varchar (20) NOT NULL,
 	coreg text,
@@ -118,4 +93,5 @@ ALTER TABLE edgar.num_stage OWNER to postgres;
 --COPY edgar.num_stage (adsh, tag, version, coreg, ddate, qtrs, uom, value, footnote) 
 --FROM 'C:\Users\brent\Downloads\num.txt' DELIMITER E'\t' CSV HEADER;
 
-select * from edgar.sub_stage;
+SELECT * FROM edgar.sub_stage;
+SELECT * FROM edgar.tag_stage;
