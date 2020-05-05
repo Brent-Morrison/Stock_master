@@ -75,8 +75,8 @@ CREATE TABLE edgar.num
 		,ddate 			date			-- cast to date
 		,qtrs 			smallint
 		,uom 			varchar (20)
-		,coreg 			text,
-		,value 			numeric,
+		,coreg 			text
+		,value 			numeric
 		,footnote 		text
         ,PRIMARY KEY    (adsh, tag, version, ddate, qtrs, uom)
 	);

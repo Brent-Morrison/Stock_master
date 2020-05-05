@@ -8,7 +8,7 @@
 password = ''
 
 # Libraries
-from sqlalchemy import create_engine, MetaData, Table
+from sqlalchemy import create_engine, MetaData, Table, text
 import psycopg2
 import pandas as pd
 import numpy as np
@@ -71,10 +71,9 @@ for url in url_list:
         'zipma', 'mas1','mas2','countryinc','stprinc','ein',
         'accepted']
     sub = sub.drop(sub_cols_to_drop, axis=1)
-    # THIS NEEDS DE-BUGGING
-    #sub = sub[['adsh','cik','name','sic','countryba','stprba','cityba',
-    #    'zipba','former','changed','afs','wksi','fye','form' 'period','fy',
-    #    'fp','filed','prevrpt','detail','instance','nciks','aciks']]
+    sub = sub[['adsh','cik','name','sic','countryba','stprba','cityba',
+        'zipba','former','changed','afs','wksi','fye','form','period','fy',
+        'fp','filed','prevrpt','detail','instance','nciks','aciks']] 
     tag = zf_files_dict['tag.txt']
     tag = tag[['tag','version','custom','abstract','datatype','iord','crdr',
                 'tlabel','doc']]
@@ -83,10 +82,9 @@ for url in url_list:
                 'coreg','value','footnote']]
 
     # Clear table contents (this is redundent if 'to_sql' specifies replace)
-    #conn.execute(sub_stage.delete())
-    #conn.execute(tag_stage.delete())
-    #conn.execute(pre_stage.delete())
-    #conn.execute(num_stage.delete())
+    conn.execute(sub_stage.delete())
+    conn.execute(tag_stage.delete())
+    conn.execute(num_stage.delete())
 
     # Insert to postgres database
     sub.to_sql(name='sub_stage', con=engine, schema='edgar', 
@@ -104,3 +102,11 @@ conn.close()
 # https://stackoverflow.com/questions/26942476/reading-csv-zipped-files-in-python
 # https://stackoverflow.com/questions/23419322/download-a-zip-file-and-extract-it-in-memory-using-python3
 # https://github.com/pandas-dev/pandas/issues/14553
+
+
+# Test execution of script
+sql_file = open("edgar_make_stage_tables.sql")
+escaped_sql = text(sql_file.read())
+conn.execute(escaped_sql)
+
+#raw_cursor.execute(open("edgar_make_final_tables.sql").read())

@@ -74,8 +74,8 @@ CREATE TABLE edgar.num_stage
 		,ddate 			integer			-- cast to date
 		,qtrs 			smallint
 		,uom 			varchar (20)
-		,coreg 			text,
-		,value 			numeric,
+		,coreg 			text
+		,value 			numeric
 		,footnote 		text
 	);
 
@@ -88,38 +88,14 @@ ALTER TABLE edgar.num_stage OWNER to postgres;
 -- Bad data tables
 --=============================================================================
 
+DROP TABLE IF EXISTS edgar.sub_bad;
 CREATE TABLE edgar.sub_bad (LIKE edgar.sub_stage INCLUDING ALL);
 ALTER TABLE edgar.sub_bad OWNER to postgres;
 
+DROP TABLE IF EXISTS edgar.tag_bad;
 CREATE TABLE edgar.tag_bad (LIKE edgar.tag_stage INCLUDING ALL);
 ALTER TABLE edgar.tag_bad OWNER to postgres;
 
+DROP TABLE IF EXISTS edgar.num_bad;
 CREATE TABLE edgar.num_bad (LIKE edgar.num_stage INCLUDING ALL);
 ALTER TABLE edgar.num_bad OWNER to postgres;
-
-
-
-
---=============================================================================
--- Load data directly from file
---=============================================================================
-
---COPY edgar.num_stage (adsh, tag, version, coreg, ddate, qtrs, uom, value, footnote) 
---FROM 'C:\Users\brent\Downloads\num.txt' DELIMITER E'\t' CSV HEADER;
-
-
-
-
---=============================================================================
--- Test
---=============================================================================
-
-SELECT COUNT(*) FROM edgar.sub_stage;
-SELECT COUNT(*) FROM edgar.tag_stage;
-SELECT COUNT(*) FROM edgar.num_stage;
-
-DELETE FROM edgar.sub_stage;
-DELETE FROM edgar.tag_stage;
-DELETE FROM edgar.num_stage;
-
---INSERT INTO edgar.num_stage VALUES ('TEST', 'TEST', 'TEST', 'TEST', 1000, 'TEST', 'TEST', 2000, 'some text');
