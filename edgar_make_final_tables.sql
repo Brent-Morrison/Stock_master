@@ -78,7 +78,7 @@ CREATE TABLE edgar.num
 		,coreg 			text
 		,value 			numeric
 		,footnote 		text
-        ,PRIMARY KEY    (adsh, tag, version, ddate, qtrs, uom)
+        ,PRIMARY KEY    (adsh, tag, version, ddate, qtrs, uom, coreg)
 	);
 
 ALTER TABLE edgar.num OWNER to postgres;

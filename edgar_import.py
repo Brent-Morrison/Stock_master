@@ -22,6 +22,8 @@ from zipfile import ZipFile
 # Note that the current month is a different url
 # https://www.sec.gov/files/node/add/data_distribution/2020q1.zip
 
+url_list = ['https://www.sec.gov/files/node/add/data_distribution/2020q1.zip']
+
 start_year = 2009
 end_year = 2009
 start_qtr = 3
@@ -31,7 +33,6 @@ base_url = 'https://www.sec.gov/files/dera/data/financial-statement-data-sets/'
 url_list = [base_url+str(y)+'q'+str(q)+'.zip' 
             for y in range(start_year, end_year+1) 
             for q in range(start_qtr,end_qtr+1)]
-print(url_list)
 
 
 # Connect to postgres database
@@ -50,7 +51,9 @@ for url in url_list:
     resp = requests.get(url)
     zf = ZipFile(io.BytesIO(resp.content))
     zf_files = zf.infolist()
-    zf_file_names = zf.namelist() 
+    zf_file_names = zf.namelist()
+    # Set this string manually for current url
+    qtr = url[66:72]
 
     # Loop over text files in the downloaded zip file and read to individual 
     # dataframes.  Exclude the readme file
@@ -62,7 +65,7 @@ for url in url_list:
             continue  
         #print(zfile.filename) 
         zf_files_dict[zfile.filename] = pd.read_csv(zf.open(zfile.filename), 
-                                        delimiter = '\t', encoding='utf-8')
+                                        delimiter = '\t|\n', encoding='utf-8')
 
     # Extract to individual dataframes and unsure columns align to database
     # table structure.  We are only loading specific columns from sub
@@ -93,6 +96,11 @@ for url in url_list:
                 index=False, if_exists='append')
     num.to_sql(name='num_stage', con=engine, schema='edgar', 
                 index=False, if_exists='append')
+    
+    # Push to bad data and "final" tables
+    sql_file = open("edgar_push_stage_final.sql")
+    escaped_sql = text(sql_file.read())
+    conn.execute(escaped_sql)
 
 # Close connection
 conn.close()
@@ -104,9 +112,32 @@ conn.close()
 # https://github.com/pandas-dev/pandas/issues/14553
 
 
-# Test execution of script
-sql_file = open("edgar_make_stage_tables.sql")
-escaped_sql = text(sql_file.read())
-conn.execute(escaped_sql)
 
-#raw_cursor.execute(open("edgar_make_final_tables.sql").read())
+# SCRATCH
+
+# Powershell command to count lines
+# Get-content C:\Users\brent\Downloads\tag2020q1.txt | Measure-Object -Line
+
+# Python count lines
+len(open('C:/Users/brent/Downloads/tag2020q1.txt').readlines())-1
+
+tag = pd.read_csv('C:/Users/brent/Downloads/tag2020q1.txt'
+    , delimiter='\t|\n', encoding='utf-8')
+tag.dropna(subset=['tag'], inplace=True)
+
+test_str='https://www.sec.gov/files/dera/data/financial-statement-data-sets/2009q4.zip'
+print(test_str[66:72])
+test_rst=test_str[66:72]
+tag['source']=test_rst
+
+
+x = {'a': 1, 'b': 2}
+#y = {'c': 10, 'd': 11}
+y = None
+x.update(y)
+
+dict1 = {}
+dict2 = {}
+for url in url_list:
+    dict1[url] = url+test_rst
+    dict2[url+test_rst] = url

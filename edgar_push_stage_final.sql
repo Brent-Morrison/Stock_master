@@ -10,7 +10,7 @@ INSERT INTO edgar.sub_bad
 
 INSERT INTO edgar.sub
 	SELECT 
-	adsh
+	COALESCE(adsh, 'NVS')
 	,cik
 	,name
 	,sic
@@ -53,8 +53,8 @@ INSERT INTO edgar.tag_bad
 
 INSERT INTO edgar.tag
 	SELECT 
-	tag
-	,version
+	COALESCE(tag, 'NVS')
+	,COALESCE(version, 'NVS')
 	,CAST(custom AS BOOLEAN)
 	,CAST(abstract AS BOOLEAN)
 	,datatype
@@ -81,6 +81,7 @@ INSERT INTO edgar.num_bad
 		AND f.ddate = to_date(s.ddate::text, 'YYYYMMDD')
 		AND f.qtrs = s.qtrs
 		AND f.uom = s.uom
+		AND f.coreg = s.coreg
 		)
 ;
 
@@ -92,10 +93,10 @@ INSERT INTO edgar.num
 	,to_date(ddate::text, 'YYYYMMDD')
 	,qtrs
 	,uom
-	,coreg
+	,COALESCE(coreg, 'NVS')
 	,value
 	,footnote
 	FROM edgar.num_stage
-ON CONFLICT (adsh, tag, version, ddate, qtrs, uom) 
+ON CONFLICT (adsh, tag, version, ddate, qtrs, uom, coreg) 
 DO NOTHING
 ;
