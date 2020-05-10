@@ -29,6 +29,7 @@ CREATE TABLE edgar.sub
 		,instance 		varchar (32)
 		,nciks 			smallint
 		,aciks 			text
+		,sec_qtr 		char (6)		NOT NULL
 	);
 
 ALTER TABLE edgar.sub OWNER to postgres;
@@ -53,6 +54,7 @@ CREATE TABLE edgar.tag
 		,crdr 			char (1)
 		,tlabel 		text
 		,doc 			text
+		,sec_qtr 		char (6)		NOT NULL
         ,PRIMARY KEY(tag, version)
 	);
 
@@ -78,6 +80,7 @@ CREATE TABLE edgar.num
 		,coreg 			text
 		,value 			numeric
 		,footnote 		text
+		,sec_qtr 		char (6)		NOT NULL
         ,PRIMARY KEY    (adsh, tag, version, ddate, qtrs, uom, coreg)
 	);
 

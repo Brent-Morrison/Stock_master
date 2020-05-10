@@ -33,6 +33,7 @@ INSERT INTO edgar.sub
 	,instance
 	,nciks
 	,aciks
+	,sec_qtr
 	FROM edgar.sub_stage
 ON CONFLICT (adsh) 
 DO NOTHING
@@ -62,6 +63,7 @@ INSERT INTO edgar.tag
 	,crdr
 	,tlabel
 	,doc
+	,sec_qtr
 	FROM edgar.tag_stage
 ON CONFLICT (tag, version) 
 DO NOTHING
@@ -96,6 +98,7 @@ INSERT INTO edgar.num
 	,COALESCE(coreg, 'NVS')
 	,value
 	,footnote
+	,sec_qtr
 	FROM edgar.num_stage
 ON CONFLICT (adsh, tag, version, ddate, qtrs, uom, coreg) 
 DO NOTHING

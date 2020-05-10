@@ -29,9 +29,10 @@ CREATE TABLE edgar.sub_stage
 		,instance 		varchar (32)
 		,nciks 			smallint
 		,aciks 			text
+		,sec_qtr 		char (6)
 	);
 
-ALTER TABLE edgar.sub_stage OWNER to postgres;
+ALTER TABLE edgar.sub_stage OWNER TO postgres;
 
 
 
@@ -53,9 +54,10 @@ CREATE TABLE edgar.tag_stage
 		,crdr 			char (1)
 		,tlabel 		text
 		,doc 			text
+		,sec_qtr 		char (6)
 	);
 
-ALTER TABLE edgar.tag_stage OWNER to postgres;
+ALTER TABLE edgar.tag_stage OWNER TO postgres;
 
 
 
@@ -77,9 +79,10 @@ CREATE TABLE edgar.num_stage
 		,coreg 			text
 		,value 			numeric
 		,footnote 		text
+		,sec_qtr 		char (6)
 	);
 
-ALTER TABLE edgar.num_stage OWNER to postgres;
+ALTER TABLE edgar.num_stage OWNER TO postgres;
 
 
 
@@ -90,12 +93,12 @@ ALTER TABLE edgar.num_stage OWNER to postgres;
 
 DROP TABLE IF EXISTS edgar.sub_bad;
 CREATE TABLE edgar.sub_bad (LIKE edgar.sub_stage INCLUDING ALL);
-ALTER TABLE edgar.sub_bad OWNER to postgres;
+ALTER TABLE edgar.sub_bad OWNER TO postgres;
 
 DROP TABLE IF EXISTS edgar.tag_bad;
 CREATE TABLE edgar.tag_bad (LIKE edgar.tag_stage INCLUDING ALL);
-ALTER TABLE edgar.tag_bad OWNER to postgres;
+ALTER TABLE edgar.tag_bad OWNER TO postgres;
 
 DROP TABLE IF EXISTS edgar.num_bad;
 CREATE TABLE edgar.num_bad (LIKE edgar.num_stage INCLUDING ALL);
-ALTER TABLE edgar.num_bad OWNER to postgres;
+ALTER TABLE edgar.num_bad OWNER TO postgres;
