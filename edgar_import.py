@@ -29,7 +29,7 @@ from zipfile import ZipFile
 # Prior quarters
 start_year = 2017
 end_year = 2017
-start_qtr = 1
+start_qtr = 3
 end_qtr = 4
 
 base_url = 'https://www.sec.gov/files/dera/data/financial-statement-data-sets/'
@@ -67,16 +67,45 @@ for url in url_list:
         if zfile.filename == 'readme.htm':
             continue
         if zfile.filename == 'pre.txt':
-            continue
-        # Tag does not load properly, workaround in order to use (delimiter='\t|\n')
-        if zfile.filename == 'tag.txt':
+            continue     
+        
+        # For the sub and num files
+        if zfile.filename != 'tag.txt':
+            zf_info_dict[zfile.filename+'_'+qtr] = len(zf.open(zfile.filename).readlines())-1
+            try:
+                zf_files_dict[zfile.filename] = pd.read_csv(zf.open(zfile.filename),
+                    delimiter='\t', encoding='utf-8')
+            except UnicodeDecodeError:
+                print('{f}{q} is not a utf-8 file'.format(f=zfile.filename, q=qtr))
+                try:
+                    zf_files_dict[zfile.filename] = pd.read_csv(zf.open(zfile.filename),
+                        delimiter='\t', encoding='ISO-8859-1')
+                except UnicodeDecodeError:
+                    print('{f}{q} is not a ISO-8859-1 file'.format(f=zfile.filename, q=qtr))
+                finally:
+                    pass
+            finally:
+                pass
+        
+        # Tag does not load properly, save locally in order to use (delimiter='\t|\n')
+        else:
+            zf_info_dict[zfile.filename+'_'+qtr] = len(zf.open(zfile.filename).readlines())-1
             zf.extractall(members = ['tag.txt'])
-            tag = pd.read_csv('tag.txt', 
-                        delimiter='\t|\n', encoding='utf-8')
-            os.remove('tag.txt')
-        zf_info_dict[zfile.filename+'_'+qtr] = len(zf.open(zfile.filename).readlines())-1
-        zf_files_dict[zfile.filename] = pd.read_csv(zf.open(zfile.filename), 
-                                        delimiter = '\t', encoding = 'utf-8')
+            try:
+                tag = pd.read_csv('tag.txt', delimiter='\t|\n', encoding='utf-8')         
+            except UnicodeDecodeError:
+                print('{f}_{q} is not utf-8 encoding'.format(f=zfile.filename, q=qtr))
+                try:
+                    tag = pd.read_csv('tag.txt', delimiter='\t|\n', encoding='ISO-8859-1')
+                except UnicodeDecodeError:
+                    print('{f}_{q} is not ISO-8859-5 encoding'.format(f=zfile.filename, q=qtr))
+                else:
+                    print('{f}_{q} opened with ISO-8859-1 encoding'.format(f=zfile.filename, q=qtr))
+            else:
+                print('{f}_{q} opened with utf-8 encoding'.format(f=zfile.filename, q=qtr))
+
+            finally:
+                os.remove('tag.txt')
 
     # Extract to individual dataframes and unsure columns align to database
     # table structure.  Add column (sec_qtr) indicating the zip file data originates from.
@@ -113,8 +142,9 @@ for url in url_list:
     
     # Push to bad data and "final" tables
     sql_file = open("edgar_push_stage_final.sql")
-    escaped_sql = text(sql_file.read())
-    conn.execute(escaped_sql)
+    text_sql = text(sql_file.read())
+    conn.execute(text_sql)
+    print('{} pushed to DB'.format(qtr))
 
     # Close zip
     zf.close()
