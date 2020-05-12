@@ -27,8 +27,8 @@ from zipfile import ZipFile
 # url_list = ['https://www.sec.gov/files/node/add/data_distribution/2020q1.zip']
 
 # Prior quarters
-start_year = 2018
-end_year = 2018
+start_year = 2017
+end_year = 2017
 start_qtr = 1
 end_qtr = 4
 
@@ -155,15 +155,16 @@ import os
 import io as io
 from zipfile import ZipFile
 
-start_year = 2009
-end_year = 2009
-start_qtr = 3
-end_qtr = 3
+start_year = 2010
+end_year = 2010
+start_qtr = 1
+end_qtr = 2
 
 base_url = 'https://www.sec.gov/files/dera/data/financial-statement-data-sets/'
 url_list = [base_url+str(y)+'q'+str(q)+'.zip' 
             for y in range(start_year, end_year+1) 
             for q in range(start_qtr,end_qtr+1)]
+
 zf_info_dict = {}
 # Looped implementation
 for url in url_list:
@@ -178,19 +179,49 @@ for url in url_list:
     # dataframes.  Exclude the readme & pre files.
     zf_files_dict = {}
     for zfile in zf_files:
+        # Ignore these files
         if zfile.filename == 'readme.htm':
             continue
         if zfile.filename == 'pre.txt':
             continue
-        zf_info_dict[zfile.filename+'_'+qtr] = len(zf.open(zfile.filename).readlines())-1
-        zf_files_dict[zfile.filename] = pd.read_csv(zf.open(zfile.filename), 
-                                        delimiter = '\t', encoding = 'utf-8')
+        
+        # For the sub and num files
+        if zfile.filename != 'tag.txt':
+            zf_info_dict[zfile.filename+'_'+qtr] = len(zf.open(zfile.filename).readlines())-1
+            try:
+                zf_files_dict[zfile.filename] = pd.read_csv(zf.open(zfile.filename), delimiter = '\t', encoding = 'utf-8')
+            except UnicodeDecodeError:
+                print('{f}{q} is not a utf-8 file'.format(f=zfile.filename, q=qtr))
+                try:
+                    zf_files_dict[zfile.filename] = pd.read_csv(zf.open(zfile.filename), delimiter='\t', encoding='ISO-8859-1')
+                except UnicodeDecodeError:
+                    print('{f}{q} is not a ISO-8859-1 file'.format(f=zfile.filename, q=qtr))
+                finally:
+                    pass
+            finally:
+                pass
+
         # Tag does not load properly, workaround in order to use (delimiter='\t|\n')
-        if zfile.filename == 'tag.txt':
+        #if zfile.filename == 'tag.txt':
+        else:
+            zf_info_dict[zfile.filename+'_'+qtr] = len(zf.open(zfile.filename).readlines())-1
             zf.extractall(members = ['tag.txt'])
-            tag = pd.read_csv('tag.txt', 
-                        delimiter='\t|\n', encoding='utf-8')
-            os.remove('tag.txt')
+            try:
+                tag = pd.read_csv('tag.txt', delimiter='\t|\n', encoding='utf-8')         
+            except UnicodeDecodeError:
+                print('{f}_{q} is not utf-8 encoding'.format(f=zfile.filename, q=qtr))
+                try:
+                    tag = pd.read_csv('tag.txt', delimiter='\t|\n', encoding='ISO-8859-1')
+                except UnicodeDecodeError:
+                    print('{f}_{q} is not ISO-8859-5 encoding'.format(f=zfile.filename, q=qtr))
+                else:
+                    print('{f}_{q} opened with ISO-8859-1 encoding'.format(f=zfile.filename, q=qtr))
+            else:
+                print('{f}_{q} opened with utf-8 encoding'.format(f=zfile.filename, q=qtr))
+
+            finally:
+                os.remove('tag.txt')
+
         
         #with zf.open(zfile.filename) as txt_file:
         #with io.StringIO(zf.open(zfile.filename)) as txt_file:
@@ -207,3 +238,6 @@ for url in url_list:
 
 log = pd.DataFrame.from_dict(zf_info_dict, orient='index', columns=['line_count'])
 log.to_csv('log.csv')
+
+tag1 = pd.read_csv('C:/Users/brent/Documents/VS_Code/postgres/postgres/tag.txt', 
+                        delimiter='\t|\n', encoding='ISO-8859-1')
