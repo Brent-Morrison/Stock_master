@@ -90,36 +90,6 @@ ALTER TABLE edgar.num OWNER to postgres;
 
 
 --=============================================================================
--- Create tag hierarchy table
- --https://stackoverflow.com/questions/14083311/permission-denied-when-trying-to-import-a-csv-file-from-pgadmin
---=============================================================================
-
-DROP TABLE IF EXISTS edgar.lookup;
-
-CREATE TABLE edgar.lookup
-	(
-		lookup_table	text	
-		,lookup_ref 	text
-		,lookup_val1	text
-		,lookup_val2	text
-		,lookup_val3	text
-		,lookup_val4	text
-		,lookup_val5	text
-		,lookup_val6	text
-		,lookup_val7	text
-	);
-
-ALTER TABLE edgar.lookup OWNER TO postgres;
-
-COPY edgar.lookup 
-FROM 'C:\Users\brent\Documents\VS_Code\postgres\postgres\edgar_lookups.csv' 
-DELIMITER ',' CSV HEADER;
-
-SELECT * FROM edgar.lookup;
-
-
-
---=============================================================================
 -- Manual load of "pre" table
 --=============================================================================
 
@@ -144,7 +114,3 @@ ALTER TABLE edgar.pre OWNER TO postgres;
 COPY edgar.pre 
 FROM 'C:\Users\brent\Documents\VS_Code\postgres\postgres\pre2020q1.txt' 
 DELIMITER E'\t' CSV HEADER;
-
-SELECT * FROM edgar.pre where tag = 'InterestExpenseOnNetChangeInEstimatedFairValueOfInterestRateSwaps';
-
-SELECT DISTINCT stmt, tag FROM edgar.pre ORDER BY stmt, tag;

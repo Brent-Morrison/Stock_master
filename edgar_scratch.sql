@@ -33,9 +33,12 @@ with t1 as (
 	,nm.qtrs
 	,sb.filed
 	,nm.tag
+	,tg.iord
+	,tg.crdr
 	,lk.lookup_val3 as level
-	,lk.lookup_val4 as level_1
-	,lk.lookup_val5 as level_2
+	,lk.lookup_val4 as L1
+	,lk.lookup_val5 as L2
+	,lk.lookup_val6 as L3
 	,nm.value/1000000 * lk.lookup_val1::int as amount
 	,(date_trunc('month',sb.filed) + interval '3 month - 1 day')::date as start_date
 	from edgar.num nm
@@ -57,38 +60,44 @@ t2 as (
 	,qtr
 	,qtrs
 	,filed 
-	,sum(case when level = '1' and level_1 = 'a' then amount else 0 end) as level_1_a
-	,sum(case when level = '1' and level_1 = 'l' then amount else 0 end) as level_1_l
-	,sum(case when level = '1' and level_1 = 'p' then amount else 0 end) as level_1_p
-	,sum(case when level = '2' and level_2 = 'ca' then amount else 0 end) as level_2_ca
-	,sum(case when level = '2' and level_2 = 'nca' then amount else 0 end) as level_2_nca
-	,sum(case when level = '2' and level_2 = 'cl' then amount else 0 end) as level_2_cl
-	,sum(case when level = '2' and level_2 = 'ncl' then amount else 0 end) as level_2_ncl
-	,sum(case when level = '2' and level_2 = 'eq' then amount else 0 end) as level_2_eq
-	,sum(case when level = '2' and level_2 = 'p' then amount else 0 end) as level_2_p
+	,sum(case when level = '1' and L1 = 'a' then amount else 0 end) as L1_a
+	,sum(case when level = '1' and L1 = 'l' then amount else 0 end) as L1_l
+	,sum(case when level = '1' and L1 = 'p' then amount else 0 end) as L1_p
+	,sum(case when level = '2' and L2 = 'ca' then amount else 0 end) as L2_ca
+	,sum(case when level = '2' and L2 = 'nca' then amount else 0 end) as L2_nca
+	,sum(case when level = '2' and L2 = 'cl' then amount else 0 end) as L2_cl
+	,sum(case when level = '2' and L2 = 'ncl' then amount else 0 end) as L2_ncl
+	,sum(case when level = '2' and L2 = 'eq' then amount else 0 end) as L2_eq
+	,sum(case when level = '3' and L3 = 'depr_amort' then amount else 0 end) as L3_dep_amt
 	from t1
 	group by 1,2,3,4,5,6,7
 	),
 
 t3 as (
 	select 
-	rank() over (partition by adsh order by ddate desc) as rnk
-	,t2.*
-	,level_1_a + level_1_l as level_1_bs_chk
-	,level_1_a - level_2_ca - level_2_nca as level_2_a_chk
-	,level_1_l - level_2_cl - level_2_ncl - level_2_eq as level_2_l_chk
-	-- infering of missing balances to go in here
+	t2.*
+	,rank() over (partition by adsh order by ddate desc) as rnk
+	,L1_a + L1_l as L1_bs_chk
+	,L1_a - L2_ca - L2_nca as L2_a_chk
+	,L1_l - L2_cl - L2_ncl - L2_eq as L2_l_chk
 	from t2
 	),
 	
 t4 as (	
 	select 
-	case 
+	t3.*
+	,case when L1_bs_chk = 0 then L1_a else 0 end as total_assets
+	,case when L1_bs_chk = 0 then L1_l else 0 end as total_liab_equity
+	,L2_ca as total_cur_assets
+	,case when L2_a_chk = 0 and L1_bs_chk = 0 then L2_nca else L1_a - L2_ca end as total_noncur_assets
+	,L2_cl as total_cur_liab
+	,case when L2_l_chk = 0 and L1_bs_chk = 0 then L2_ncl else L1_l - L2_cl - L2_eq end as total_noncur_liab
+	,case when L1_bs_chk = 0 then L2_eq else 0 end as total_equity
+	,case 
 		when qtrs = 0 then 'pit'
 		when qtrs::text = qtr or (qtrs::text = '4' and qtr = 'Y') then 'ytd_pl'
 		else 'na'
 		end as bal_type
-	,t3.*
 	from t3
 	where rnk = 1
 	and case 
@@ -99,24 +108,10 @@ t4 as (
 	)
 
 select 
-level_1_p - case when bal_type = 'ytd_pl' and qtrs > 1 
-				then lag(level_1_p) over (partition by stock, bal_type order by ddate) 
+t4.*
+,L1_p - case when bal_type = 'ytd_pl' and qtrs > 1 
+				then lag(L1_p) over (partition by stock, bal_type order by ddate) 
 				else 0 
 				end as net_income_qtly
-,t4.*
 from t4
 ;
-
-
-
-
-
-
-select nm.tag, lk.lookup_ref, nm.value 
-from edgar.num nm
-left join edgar.lookup lk
-on nm.tag = lk.lookup_ref
-where adsh = '0000019617-19-000232';  --0001564590-20-010833 / 0000008670-19-000013 / 0000019617-19-000232
-
-
-select distinct tag from edgar.num where qtrs = 0 and lower(tag) like '%cash%';
