@@ -1,8 +1,11 @@
+select * from edgar.lookup;
+
 --=============================================================================
 -- Create tag hierarchy table
  --https://stackoverflow.com/questions/14083311/permission-denied-when-trying-to-import-a-csv-file-from-pgadmin
 --=============================================================================
 
+drop materialized view if exists edgar.lookup;
 drop table if exists edgar.lookup_csv;
 
 create table edgar.lookup_csv
@@ -24,16 +27,12 @@ copy edgar.lookup_csv
 from 'C:\Users\brent\Documents\VS_Code\postgres\postgres\edgar_lookups.csv' 
 delimiter ',' csv header;
 
-select * from edgar.lookup_csv;
-
 
 
 
 --=============================================================================
 -- Derive depreciation and amortisation
 --=============================================================================
-
-drop materialized view if exists edgar.lookup;
 
 create materialized view edgar.lookup as 
 	select * from edgar.lookup_csv
@@ -61,4 +60,11 @@ create materialized view edgar.lookup as
 		) as lookup_ref
 ;
 
-select * from edgar.lookup;
+/*
+select distinct stmt, tag 
+from edgar.pre 
+where stmt = 'BS' 
+and lower(tag) like any (array['%intang%', '%goodwill%'])
+and lower(tag) not like any (array['%accumulated%','%liabilit%','%excluding%'])
+order by stmt, tag
+*/
