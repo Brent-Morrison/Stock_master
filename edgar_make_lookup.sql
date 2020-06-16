@@ -2,11 +2,12 @@ select * from edgar.lookup;
 
 --=============================================================================
 -- Create tag hierarchy table
- --https://stackoverflow.com/questions/14083311/permission-denied-when-trying-to-import-a-csv-file-from-pgadmin
+-- https://stackoverflow.com/questions/14083311/permission-denied-when-trying-to-import-a-csv-file-from-pgadmin
+-- add IndefiniteLivedLicenseAgreements & OtherIntangibleAssetsNet to 'intang' per 0000732717-17-000021
+-- add LongTermDebtAndCapitalLeaseObligations re 0000732717-17-000021
 --=============================================================================
 
-drop materialized view if exists edgar.lookup;
-drop table if exists edgar.lookup_csv;
+drop table if exists edgar.lookup_csv cascade;
 
 create table edgar.lookup_csv
 	(
@@ -30,11 +31,14 @@ delimiter ',' csv header;
 
 
 
+
 --=============================================================================
 -- Derive depreciation and amortisation
 --=============================================================================
 
-create materialized view edgar.lookup as 
+drop table if exists edgar.lookup cascade;
+
+create table edgar.lookup as 
 	select * from edgar.lookup_csv
 	
 	union all 
@@ -54,17 +58,9 @@ create materialized view edgar.lookup as
 			select distinct stmt, tag 
 			from edgar.pre 
 			where stmt = 'CF' 
-			and (lower(tag) like '%depletion%'or lower(tag) like '%depreciation%' or lower(tag) like '%amort%')
+			and (lower(tag) like '%depletion%' or lower(tag) like '%depreciation%' or lower(tag) like '%amort%')
 			and (lower(tag) like '%intang%' or lower(tag) like '%goodwill%')
 			order by stmt, tag
 		) as lookup_ref
 ;
 
-/*
-select distinct stmt, tag 
-from edgar.pre 
-where stmt = 'BS' 
-and lower(tag) like any (array['%intang%', '%goodwill%'])
-and lower(tag) not like any (array['%accumulated%','%liabilit%','%excluding%'])
-order by stmt, tag
-*/

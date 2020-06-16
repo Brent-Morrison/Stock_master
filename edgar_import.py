@@ -156,3 +156,31 @@ conn.close()
 # Save log file
 log = pd.DataFrame.from_dict(zf_info_dict, orient='index', columns=['line_count'])
 log.to_csv('log.csv')
+
+
+
+
+##############################################################################
+#
+# Load ticker list from SEC website
+# at https://www.sec.gov/dera/data/financial-statement-data-sets.html
+#
+##############################################################################
+
+# Connect to postgres database
+engine = create_engine('postgresql://postgres:'+password+
+                        '@localhost:5432/stock_master')
+conn = engine.connect()
+meta = MetaData(engine)
+meta.reflect(schema='edgar')
+company_tickers = meta.tables['edgar.company_tickers']
+
+# Grab data from SEC website
+sec_symbols_json = pd.read_json('https://www.sec.gov/files/company_tickers.json', orient='index')
+
+# Insert to postgres database
+sec_symbols_json.to_sql(name='company_tickers', con=engine, schema='edgar', 
+                        index=False, if_exists='append', method='multi', chunksize=50000)
+
+# Close connection
+conn.close()

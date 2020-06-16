@@ -1,58 +1,76 @@
---=============================================================================
--- Upload check
---=============================================================================
 
-select count(tag) as records, 'tag' as tbl_source from edgar.tag where sec_qtr = '2017q1'
-union all
-select count(tag) as records, 'tag_bad' as tbl_source from edgar.tag_bad where sec_qtr = '2017q1'
-union all
-select count(adsh) as records, 'sub' as tbl_source from edgar.sub where sec_qtr = '2017q1'
-union all
-select count(adsh) as records, 'sub_bad' as tbl_source from edgar.sub_bad where sec_qtr = '2017q1'
-union all
-select count(tag) as records, 'num' as tbl_source from edgar.num where sec_qtr = '2017q1'
-union all
-select count(tag) as records, 'num_bad' as tbl_source from edgar.num_bad where sec_qtr = '2017q1'
-;
-
-
-
---=============================================================================
--- Data format
--- https://www.sec.gov/edgar/searchedgar/accessing-edgar-data.htm
---=============================================================================
+/*******************************************************************************************
+ * 
+ * DATA FORMAT: https://www.sec.gov/edgar/searchedgar/accessing-edgar-data.htm
+ * 
+ * ISSUES
+ * 
+ * 0001459417-20-000003 - '2U, INC.' cash is doubled due to two tags as below.
+ * - 'CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents' AND 'CashAndCashEquivalentsAtCarryingValue'
+ * 
+ * Check AT&T 2017 for no total liabilities, 
+ * equity not returned since flagged as 'StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest'
+ * adsh = '0000732717-17-000021'
+ * 
+ * Check BB&T for no current assets adsh = '0000092230-17-000021'
+ * 
+ ********************************************************************************************/
 
 with t1 as (
+	-- new
 	select
 	sb.name as stock
 	,nm.ddate
 	,nm.adsh
+	,nm.sec_qtr
 	,sb.fy
 	,substring(sb.fp,2,1) as qtr
 	,nm.qtrs
 	,sb.filed
 	,nm.tag
-	--,tg.iord
-	--,tg.crdr
-	,lk.lookup_val3 as level
-	,lk.lookup_val4 as L1
-	,lk.lookup_val5 as L2
-	,lk.lookup_val6 as L3
-	,nm.value/1000000 * lk.lookup_val1::int as amount
-	,(date_trunc('month',sb.filed) + interval '3 month - 1 day')::date as start_date
+	,lk_t.lookup_val3 as level
+	,lk_t.lookup_val4 as L1
+	,lk_t.lookup_val5 as L2
+	,lk_t.lookup_val6 as L3
+	,nm.value/1000000 * lk_t.lookup_val1::int as amount
+	,case when lk_s.lookup_val2 = 'Office of Finance' then 'financial' else 'non_financial' end as fin_nonfin
+	-- This can be moved down the chain
+	,fc.value as equity_cutoff
+	,sum(case when nm.tag = 'StockholdersEquity' then nm.value else 0 end) over (partition by nm.adsh, nm.ddate, nm.sec_qtr) as equity_actual
+	-- This can be moved down the chain
 	from edgar.num nm
-	inner join edgar.lookup lk
-	on nm.tag = lk.lookup_ref
-	and lk.lookup_table = 'tag_mapping'
+	inner join edgar.lookup lk_t
+	on nm.tag = lk_t.lookup_ref
+	and lk_t.lookup_table = 'tag_mapping'
 	left join edgar.sub sb
 	on nm.adsh = sb.adsh
+	left join edgar.lookup lk_s
+	on sb.sic = lk_s.lookup_ref::int
+	and lk_s.lookup_table = 'sic_mapping' 
+	-- For size cut-off, change join to prior months cut-offs
+	left join 
+		(
+			select 
+			tag 
+			,sec_qtr
+			,fin_nonfin
+			,rnk
+			,value 
+			from edgar.fndmtl_cutoffs 
+			where tag = 'StockholdersEquity' 
+			and (fin_nonfin = 'financial' and rnk = 200
+			or fin_nonfin = 'non_financial' and rnk = 1800)
+		) fc
+	on fc.fin_nonfin = case when lk_s.lookup_val2 = 'Office of Finance' then 'financial' else 'non_financial' end
+	and fc.sec_qtr = nm.sec_qtr 
 	where 1 = 1
-	-- Filter forms 10-K/A, 10-Q/A being restated filings
-	-- This should be done with sb.prevrpt however this attribute removed pre insert 
+	-- Filter forms 10-K/A, 10-Q/A, these being restated filings
+	-- This should be done with sb.prevrpt however this was attribute removed pre insert 
 	and sb.form in ('10-K', '10-Q')
-	and sb.name in ('AUTOMATIC DATA PROCESSING INC', 'ORACLE CORP', 
-		'ACUITY BRANDS INC', 'ACURA PHARMACEUTICALS, INC',
-		'CUSTOMERS BANCORP, INC.','CHEWY, INC.') 
+	-- coreg filter to avoid duplicates
+	and nm.coreg = 'NVS'
+	--and sb.name in ('') 						-- FILTER FOR INVESTIGATION
+	--and nm.adsh = '0001193125-17-050292' 		-- FILTER FOR INVESTIGATION
 	),
 
 t2 as (
@@ -64,21 +82,22 @@ t2 as (
 	,qtr
 	,qtrs
 	,filed 
-	,sum(case when level = '1' and L1 = 'a' then amount else 0 end) as L1_a
-	,sum(case when level = '1' and L1 = 'l' then amount else 0 end) as L1_l
-	,sum(case when level = '1' and L1 = 'le' then amount else 0 end) as L1_le
-	,sum(case when level = '1' and L1 = 'p' then amount else 0 end) as L1_p
-	,sum(case when level = '2' and L2 = 'ca' then amount else 0 end) as L2_ca
-	,sum(case when level = '2' and L2 = 'nca' then amount else 0 end) as L2_nca
-	,sum(case when level = '2' and L2 = 'cl' then amount else 0 end) as L2_cl
-	,sum(case when level = '2' and L2 = 'ncl' then amount else 0 end) as L2_ncl
-	,sum(case when level = '2' and L2 = 'eq' then amount else 0 end) as L2_eq
-	,sum(case when level = '3' and L3 = 'cash' then amount else 0 end) as L3_cash
-	,sum(case when level = '3' and L3 = 'st_debt' then amount else 0 end) as L3_std
-	,sum(case when level = '3' and L3 = 'lt_debt' then amount else 0 end) as L3_ltd
-	,sum(case when level = '3' and L3 = 'intang' then amount else 0 end) as L3_intang
-	,sum(case when level = '3' and L3 = 'depr_amort' then amount else 0 end) as L3_dep_amt
+	,sum(case when level = '1' and L1 = 'a' then amount else 0 end) 			as L1_a
+	,sum(case when level = '1' and L1 = 'l' then amount else 0 end) 			as L1_l
+	,sum(case when level = '1' and L1 = 'le' then amount else 0 end) 			as L1_le
+	,sum(case when level = '1' and L1 = 'p' then amount else 0 end) 			as L1_p
+	,sum(case when level = '2' and L2 = 'ca' then amount else 0 end) 			as L2_ca
+	,sum(case when level = '2' and L2 = 'nca' then amount else 0 end) 			as L2_nca
+	,sum(case when level = '2' and L2 = 'cl' then amount else 0 end) 			as L2_cl
+	,sum(case when level = '2' and L2 = 'ncl' then amount else 0 end) 			as L2_ncl
+	,min(case when level = '2' and L2 = 'eq' then amount else 0 end) 			as L2_eq
+	,sum(case when level = '3' and L3 = 'cash' then amount else 0 end) 			as L3_cash
+	,sum(case when level = '3' and L3 = 'st_debt' then amount else 0 end) 		as L3_std
+	,sum(case when level = '3' and L3 = 'lt_debt' then amount else 0 end) 		as L3_ltd
+	,sum(case when level = '3' and L3 = 'intang' then amount else 0 end) 		as L3_intang
+	,sum(case when level = '3' and L3 = 'depr_amort' then amount else 0 end) 	as L3_dep_amt
 	from t1
+	where 1 = 1 --equity_actual > equity_cutoff
 	group by 1,2,3,4,5,6,7
 	),
 
@@ -86,10 +105,10 @@ t3 as (
 	select 
 	t2.*
 	,rank() over (partition by adsh order by ddate desc) as rnk
-	,L1_a + L1_le as L1_bs_chk
-	,L1_a - L2_ca - L2_nca as L2_a_chk
-	,L1_l - L2_cl - L2_ncl - L2_eq as L2_l_chk
-	,l2_ca + l2_nca + l2_cl + l2_ncl + l2_eq as L2_bs_chk
+	,L1_a + L1_le 								as L1_bs_chk
+	,L1_a - L2_ca - L2_nca 						as L2_a_chk
+	,L1_l - L2_cl - L2_ncl - L2_eq 				as L2_l_chk
+	,l2_ca + l2_nca + l2_cl + l2_ncl + l2_eq 	as L2_bs_chk
 	from t2
 	),
 	
@@ -98,12 +117,14 @@ t4 as (
 	t3.*
 	,case when L1_bs_chk = 0 then L1_a else 0 end as total_assets
 	,case 
-		when L1_bs_chk = 0 and L1_l !=0 then L1_l 
-		when L2_cl != 0 or L2_ncl != 0 then L2_cl + L2_ncl
+		when L1_bs_chk = 0 and L1_l != 0 then L1_l 
+		when L2_cl != 0 and L2_ncl != 0 then L2_cl + L2_ncl
+		when L2_cl != 0 and L2_ncl = 0 and l2_eq != 0 then l1_le - l2_eq
 		else 0 end as total_liab
 	,case 
-		when L1_bs_chk = 0 and L1_l !=0 then -(L1_a + L1_l)
-		when L2_cl != 0 or L2_ncl != 0 then -(L1_a + L2_cl + L2_ncl)
+		when L1_bs_chk = 0 and L1_l != 0 then -(L1_a + L1_l)
+		when L2_cl != 0 and L2_ncl != 0 then -(L1_a + L2_cl + L2_ncl)
+		when L2_cl != 0 and L2_ncl = 0 and l2_eq != 0 then l2_eq
 		else 0 end as total_equity
 	,case when L1_bs_chk = 0 then L1_le else 0 end as total_liab_equity
 	,case 
@@ -153,6 +174,7 @@ t5 as (
 					end as net_income_qtly
 	from t4
 	),
+
 t6 as (	
 	select
 	t5.*
@@ -182,24 +204,25 @@ stock
 ,fy
 ,qtr
 ,filed
+,(date_trunc('month',filed) + interval '3 month - 1 day')::date as start_date
+,sum(cash_equiv_st_invest) as cash_equiv_st_invest
+,sum(total_cur_assets) as total_cur_assets
+,sum(intang_asset) as intang_asset
+,sum(total_noncur_assets) as total_noncur_assets
 ,sum(total_assets) as total_assets
+,sum(st_debt) as st_debt
+,sum(total_cur_liab) as total_cur_liab
+,sum(lt_debt) as lt_debt
+,sum(total_noncur_liab) as total_noncur_liab
 ,sum(total_liab) as total_liab
 ,sum(total_equity) as total_equity
 ,sum(net_income_qtly) as net_income_qtly
 from t6
 group by 1,2,3,4,5,6
+--having sum(cash_equiv_st_invest) = 0   -- FILTER FOR INVESTIGATION
 ;
 
 
 
 
 
-
-
-
-select distinct sic from edgar.sub
-
-select * from edgar.sub where adsh = '0001766502-19-000007'--coreg = 'KentuckyTrailer' --adsh = '0001558370-20-001148'
-
-select count(*) from edgar.num 
-where 

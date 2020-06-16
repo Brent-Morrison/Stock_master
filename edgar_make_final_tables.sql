@@ -114,3 +114,23 @@ ALTER TABLE edgar.pre OWNER TO postgres;
 COPY edgar.pre 
 FROM 'C:\Users\brent\Documents\VS_Code\postgres\postgres\pre2020q1.txt' 
 DELIMITER E'\t' CSV HEADER;
+
+
+
+
+--=============================================================================
+-- SEC symbols table
+--=============================================================================
+
+DROP TABLE IF EXISTS edgar.company_tickers;
+
+CREATE TABLE edgar.company_tickers
+	(
+		cik_str 		integer
+		,ticker			varchar (10)
+		,title 			text
+	);
+
+ALTER TABLE edgar.company_tickers OWNER TO postgres;
+
+select * from edgar.company_tickers
