@@ -4,9 +4,9 @@
 * 
 ******************************************************************************/
 
---drop table if exists simfin.us_cashflow_qtly;
+--drop table if exists simfin.us_balance_ins_qtly;
 
-create table simfin.us_cashflow_qtly
+create table simfin.us_cashflow_ins_qtly
 	(
 		ticker	text
 		,simfin_id	integer
@@ -20,33 +20,28 @@ create table simfin.us_cashflow_qtly
 		,net_income_start	numeric
 		,depr_amor	numeric
 		,non_cash_items	numeric
-		,chg_working_capital	numeric
-		,chg_accounts_recv	numeric
-		,chg_inventories	numeric
-		,chg_acc_payable	numeric
-		,chg_other	numeric
-		,net_cash_ops	numeric
 		,chg_fix_assets_int	numeric
-		,net_chg_lt_invest	numeric
-		,net_cash_acq_divest	numeric
+		,net_chg_invest	numeric
 		,net_cash_inv	numeric
 		,dividends_paid	numeric
 		,cash_repay_debt	numeric
 		,cash_repurchase_equity	numeric
 		,net_cash_fin	numeric
+		,effect_fx_rates	numeric
 		,net_chg_cash	numeric
 	);
 
-alter table simfin.us_cashflow_qtly owner to postgres;
+alter table simfin.us_cashflow_ins_qtly owner to postgres;
 
-copy simfin.us_cashflow_qtly 
-from 'C:\Users\brent\Documents\VS_Code\postgres\postgres\us-cashflow-quarterly.csv' 
+copy simfin.us_cashflow_ins_qtly 
+from 'C:\Users\brent\Documents\VS_Code\postgres\postgres\us-cashflow-insurance-quarterly.csv' 
 delimiter ';' csv header;
 
 
+select count(distinct ticker) from simfin.us_income_ins_qtly
 
-select count(distinct ticker) from simfin.us_cashflow_qtly where ticker = 'WMT'
-select * from simfin.us_shareprices_daily where ticker = 'WMT'
+select * from simfin.us_cashflow_ins_qtly
+
 
 
 

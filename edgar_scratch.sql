@@ -1,228 +1,279 @@
+select 
+ticker 
+,min(date) as min_date
+,max(date) as max_date
+,count(*) 
+from simfin.us_shareprices_daily
+where ticker not like ('%old%')
+group by 1
+order by 1;
 
-/*******************************************************************************************
- * 
- * DATA FORMAT: https://www.sec.gov/edgar/searchedgar/accessing-edgar-data.htm
- * 
- * ISSUES
- * 
- * 0001459417-20-000003 - '2U, INC.' cash is doubled due to two tags as below.
- * - 'CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents' AND 'CashAndCashEquivalentsAtCarryingValue'
- * 
- * Check AT&T 2017 for no total liabilities, 
- * equity not returned since flagged as 'StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest'
- * adsh = '0000732717-17-000021'
- * 
- * Check BB&T for no current assets adsh = '0000092230-17-000021'
- * 
- ********************************************************************************************/
-
-with t1 as (
-	-- new
-	select
-	sb.name as stock
-	,nm.ddate
-	,nm.adsh
-	,nm.sec_qtr
-	,sb.fy
-	,substring(sb.fp,2,1) as qtr
-	,nm.qtrs
-	,sb.filed
-	,nm.tag
-	,lk_t.lookup_val3 as level
-	,lk_t.lookup_val4 as L1
-	,lk_t.lookup_val5 as L2
-	,lk_t.lookup_val6 as L3
-	,nm.value/1000000 * lk_t.lookup_val1::int as amount
-	,case when lk_s.lookup_val2 = 'Office of Finance' then 'financial' else 'non_financial' end as fin_nonfin
-	-- This can be moved down the chain
-	,fc.value as equity_cutoff
-	,sum(case when nm.tag = 'StockholdersEquity' then nm.value else 0 end) over (partition by nm.adsh, nm.ddate, nm.sec_qtr) as equity_actual
-	-- This can be moved down the chain
-	from edgar.num nm
-	inner join edgar.lookup lk_t
-	on nm.tag = lk_t.lookup_ref
-	and lk_t.lookup_table = 'tag_mapping'
-	left join edgar.sub sb
-	on nm.adsh = sb.adsh
-	left join edgar.lookup lk_s
-	on sb.sic = lk_s.lookup_ref::int
-	and lk_s.lookup_table = 'sic_mapping' 
-	-- For size cut-off, change join to prior months cut-offs
-	left join 
-		(
-			select 
-			tag 
-			,sec_qtr
-			,fin_nonfin
-			,rnk
-			,value 
-			from edgar.fndmtl_cutoffs 
-			where tag = 'StockholdersEquity' 
-			and (fin_nonfin = 'financial' and rnk = 200
-			or fin_nonfin = 'non_financial' and rnk = 1800)
-		) fc
-	on fc.fin_nonfin = case when lk_s.lookup_val2 = 'Office of Finance' then 'financial' else 'non_financial' end
-	and fc.sec_qtr = nm.sec_qtr 
-	where 1 = 1
-	-- Filter forms 10-K/A, 10-Q/A, these being restated filings
-	-- This should be done with sb.prevrpt however this was attribute removed pre insert 
-	and sb.form in ('10-K', '10-Q')
-	-- coreg filter to avoid duplicates
-	and nm.coreg = 'NVS'
-	--and sb.name in ('') 						-- FILTER FOR INVESTIGATION
-	--and nm.adsh = '0001193125-17-050292' 		-- FILTER FOR INVESTIGATION
-	),
-
-t2 as (
-	select 
-	stock
-	,ddate
-	,adsh
-	,fy
-	,qtr
-	,qtrs
-	,filed 
-	,sum(case when level = '1' and L1 = 'a' then amount else 0 end) 			as L1_a
-	,sum(case when level = '1' and L1 = 'l' then amount else 0 end) 			as L1_l
-	,sum(case when level = '1' and L1 = 'le' then amount else 0 end) 			as L1_le
-	,sum(case when level = '1' and L1 = 'p' then amount else 0 end) 			as L1_p
-	,sum(case when level = '2' and L2 = 'ca' then amount else 0 end) 			as L2_ca
-	,sum(case when level = '2' and L2 = 'nca' then amount else 0 end) 			as L2_nca
-	,sum(case when level = '2' and L2 = 'cl' then amount else 0 end) 			as L2_cl
-	,sum(case when level = '2' and L2 = 'ncl' then amount else 0 end) 			as L2_ncl
-	,min(case when level = '2' and L2 = 'eq' then amount else 0 end) 			as L2_eq
-	,sum(case when level = '3' and L3 = 'cash' then amount else 0 end) 			as L3_cash
-	,sum(case when level = '3' and L3 = 'st_debt' then amount else 0 end) 		as L3_std
-	,sum(case when level = '3' and L3 = 'lt_debt' then amount else 0 end) 		as L3_ltd
-	,sum(case when level = '3' and L3 = 'intang' then amount else 0 end) 		as L3_intang
-	,sum(case when level = '3' and L3 = 'depr_amort' then amount else 0 end) 	as L3_dep_amt
-	from t1
-	where 1 = 1 --equity_actual > equity_cutoff
-	group by 1,2,3,4,5,6,7
-	),
-
-t3 as (
-	select 
-	t2.*
-	,rank() over (partition by adsh order by ddate desc) as rnk
-	,L1_a + L1_le 								as L1_bs_chk
-	,L1_a - L2_ca - L2_nca 						as L2_a_chk
-	,L1_l - L2_cl - L2_ncl - L2_eq 				as L2_l_chk
-	,l2_ca + l2_nca + l2_cl + l2_ncl + l2_eq 	as L2_bs_chk
-	from t2
-	),
-	
-t4 as (	
-	select 
-	t3.*
-	,case when L1_bs_chk = 0 then L1_a else 0 end as total_assets
-	,case 
-		when L1_bs_chk = 0 and L1_l != 0 then L1_l 
-		when L2_cl != 0 and L2_ncl != 0 then L2_cl + L2_ncl
-		when L2_cl != 0 and L2_ncl = 0 and l2_eq != 0 then l1_le - l2_eq
-		else 0 end as total_liab
-	,case 
-		when L1_bs_chk = 0 and L1_l != 0 then -(L1_a + L1_l)
-		when L2_cl != 0 and L2_ncl != 0 then -(L1_a + L2_cl + L2_ncl)
-		when L2_cl != 0 and L2_ncl = 0 and l2_eq != 0 then l2_eq
-		else 0 end as total_equity
-	,case when L1_bs_chk = 0 then L1_le else 0 end as total_liab_equity
-	,case 
-		when qtrs = 0 then 'pit'
-		when qtrs::text = qtr or (qtrs::text = '4' and qtr = 'Y') then 'ytd_pl'
-		else 'na'
-		end as bal_type
-	from t3
-	where rnk = 1
-	and case 
-		when qtrs = 0 then 'pit'
-		when qtrs::text = qtr or (qtrs::text = '4' and qtr = 'Y') then 'ytd_pl'
-		else 'na'
-		end != 'na'
-	),
-
-t5 as (	
-	select 
-	t4.*
-	,case 
-		when L2_a_chk = 0 then L2_ca 
-		when L2_ca <= total_assets and L2_ca != 0 then L2_ca
-		when L2_ca = 0 and L2_nca != 0 then total_assets - L2_nca
-		else total_assets 
-		end as total_cur_assets
-	,case 
-		when L2_a_chk = 0 then L2_nca 
-		when L2_nca <= total_assets and L2_nca != 0 then L2_nca
-		when L2_nca = 0 and L2_ca != 0 then total_assets - L2_ca
-		else 0
-		end as total_noncur_assets
-	,case 
-		when L2_l_chk = 0 then L2_cl 
-		when L2_cl >= total_liab and L2_cl != 0 then L2_cl
-		when L2_cl = 0 and L2_ncl != 0 then total_assets - L2_ncl
-		else total_liab 
-		end as total_cur_liab
-	,case 
-		when L2_l_chk = 0 then L2_ncl 
-		when L2_ncl >= total_liab and L2_ncl != 0 then L2_ncl
-		when L2_ncl = 0 and L2_cl != 0 then total_liab - L2_cl
-		else 0
-		end as total_noncur_liab	
-	,L1_p - case when bal_type = 'ytd_pl' and qtrs > 1 
-					then lag(L1_p) over (partition by stock, bal_type order by ddate) 
-					else 0 
-					end as net_income_qtly
-	from t4
-	),
-
-t6 as (	
-	select
-	t5.*
-	,case 
-		when L3_cash <= total_cur_assets and L3_cash > 0 then L3_cash
-		else 0 
-		end as cash_equiv_st_invest
-	,case 
-		when L3_std >= total_cur_liab and L3_std < 0 then L3_std
-		else 0 
-		end as st_debt
-	,case 
-		when L3_ltd >= total_noncur_liab and L3_ltd < 0 then L3_ltd
-		else 0 
-		end as lt_debt
-	,case 
-		when L3_intang <= total_assets and L3_intang > 0 then L3_intang
-		else 0 
-		end as intang_asset
-	from t5
-	)
+---------------------------------------------
 
 select 
-stock
-,ddate
-,adsh
-,fy
-,qtr
-,filed
-,(date_trunc('month',filed) + interval '3 month - 1 day')::date as start_date
-,sum(cash_equiv_st_invest) as cash_equiv_st_invest
-,sum(total_cur_assets) as total_cur_assets
-,sum(intang_asset) as intang_asset
-,sum(total_noncur_assets) as total_noncur_assets
-,sum(total_assets) as total_assets
-,sum(st_debt) as st_debt
-,sum(total_cur_liab) as total_cur_liab
-,sum(lt_debt) as lt_debt
-,sum(total_noncur_liab) as total_noncur_liab
-,sum(total_liab) as total_liab
-,sum(total_equity) as total_equity
-,sum(net_income_qtly) as net_income_qtly
-from t6
-group by 1,2,3,4,5,6
---having sum(cash_equiv_st_invest) = 0   -- FILTER FOR INVESTIGATION
+symbol
+,min(timestamp) as min_date
+,max(timestamp) as max_date
+,count(*) 
+from alpha_vantage.shareprices_daily 
+group by 1
+order by symbol
+
+---------------------------------------------
+
+select * from alpha_vantage.shareprices_daily where symbol = 'FTDR'
+
+---------------------------------------------
+
+select 
+distinct ticker 
+from simfin.us_shareprices_daily
+where ticker not like ('%old%')
+and ticker not in 
+	(
+	select distinct symbol 
+	from alpha_vantage.shareprices_daily
+	)
+order by 1;
+
+---------------------------------------------
+
+with t1 as (	
+	select 
+	edgar.edgar_fndmntl_t1.*
+	,rank() over (partition by sec_qtr, fin_nonfin order by total_assets desc) 	as asset_rank
+	,rank() over (partition by sec_qtr, fin_nonfin order by total_equity asc) 	as equity_rank
+	from edgar.edgar_fndmntl_t1
+	)
+
+,t2 as (	
+	select
+	t1.*
+	,asset_rank + equity_rank 													as sum_rank
+	from t1
+	)
+
+,t3 as (
+	select 
+	t2.*
+	,rank() over (partition by sec_qtr, fin_nonfin order by sum_rank asc) 		as combined_rank
+	from t2
+	)
+
+select distinct stock
+from t3
+where 	(	(combined_rank <= 1750 and fin_nonfin = 'non_financial'	)
+		or 	(combined_rank <= 250  and fin_nonfin = 'financial')	)
+
+		
+		
+/******************************************************************************
+* 
+* Create ticker to cik view
+* 
+******************************************************************************/
+
+drop view edgar.edgar_cik_ticker_view;
+
+create or replace view edgar.edgar_cik_ticker_view as 
+		
+select 
+cik_str 
+,ticker 
+,title 
+from 
+	(
+	select 
+	ct.* 
+	,length(ticker) as len
+	,min(length(ticker)) over (partition by title) as min_len
+	-- This rank causes an issue with C and GS
+	,rank() over (partition by title order by ticker asc) as rnk
+	from edgar.company_tickers ct
+	where title in ('SPHERIX INC','BERKSHIRE HATHAWAY INC','CITIGROUP INC','GOLDMAN SACHS GROUP INC')
+	) t1
+-- Assume longer tickers relate to non-primary share classes, eg. title = 'SPHERIX INC'
+where len = min_len
+-- In the event of multiple tickers of the same length,
+-- take the first ranked, eg. for title = 'BERKSHIRE HATHAWAY INC',
+-- select 'BRKA' over 'BRKB'
+and rnk = 1
+;
+
+
+select * from edgar.sub where adsh in ('0001764925-19-000174','0000831001-17-000038')
+
+
+select * from edgar.edgar_cik_ticker_view
+
+select * 
+--from edgar.company_tickers
+from edgar.sub 
+where name in (
+'ABV CONSULTING, INC.'
+,'ALLY FINANCIAL INC.'
+,'AMARIN CORP PLCUK'
+,'AMERICAN RENAISSANCE CAPITAL, INC.'
+,'ANTERO MIDSTREAM PARTNERS LP'
+,'APELLIS PHARMACEUTICALS, INC.'
+,'BAKER HUGHES A GE CO LLC'
+,'BAKER HUGHES INC'
+,'BANCORPSOUTH INC'
+,'BENEFICIAL BANCORP INC.'
+,'BROADCOM LTD'
+,'CALGON CARBON CORP'
+,'CAPITOL FEDERAL FINANCIAL INC'
+,'CAPITOL FEDERAL FINANCIAL, INC.'
+,'CHEE CORP.'
+,'CHEMTURA CORP'
+,'CIGNA CORP'
+,'CITIGROUP INC'
+,'DELEK US HOLDINGS, INC.'
+,'DOW CHEMICAL CO /DE/'
+,'EATON VANCE CORP'
+,'EMPIRE STATE REALTY OP, L.P.'
+,'ENERGY TRANSFER PARTNERS, L.P.'
+,'ENERGY TRANSFER, LP'
+,'EVERBANK FINANCIAL CORP'
+,'FEDERAL HOME LOAN MORTGAGE CORP'
+,'GANNETT CO., INC.'
+,'GOLDMAN SACHS GROUP INC'
+,'INTERFACE INC'
+,'INVESCO DB COMMODITY INDEX TRACKING FUND'
+,'INVESTORS BANCORP, INC.'
+,'ISHARES S&P GSCI COMMODITY-INDEXED TRUST'
+,'KALMIN CORP.'
+,'KASKAD CORP.'
+,'KEARNY FINANCIAL CORP.'
+,'KNIGHT TRANSPORTATION INC'
+,'KURA ONCOLOGY, INC.'
+,'L3 TECHNOLOGIES, INC.'
+,'LA QUINTA HOLDINGS INC.'
+,'LEGACY RESERVES LP'
+,'LEGACYTEXAS FINANCIAL GROUP, INC.'
+,'MERCER INTERNATIONAL INC.'
+,'MERIDIAN BANCORP, INC.'
+,'NORTHWEST NATURAL GAS CO'
+,'ORITANI FINANCIAL CORP'
+,'OVINTIV INC.'
+,'PIPER JAFFRAY COMPANIES'
+,'POWERSHARES DB COMMODITY INDEX TRACKING FUND'
+,'PROSHARES TRUST II'
+,'RESTAURANT BRANDS INTERNATIONAL LIMITED PARTNERSHIP'
+,'RIVIERA RESOURCES, INC.'
+,'SCANA CORP'
+,'SOHU COM INC'
+,'SOLARWINDS CORP'
+,'SOLDINO GROUP CORP'
+,'SOUTHWEST GAS CORP'
+,'SPECTRA ENERGY CORP.'
+,'SPECTRUM BRANDS HOLDINGS, INC.'
+,'STERIS PLC'
+,'STONEMOR PARTNERS LP'
+,'TCF FINANCIAL CORP'
+,'TIME WARNER INC.'
+,'TREX CO INC'
+,'TWENTY-FIRST CENTURY FOX, INC.'
+,'US ECOLOGY, INC.'
+,'VALSPAR CORP'
+,'VEREIT, INC.'
+,'VISTRA ENERGY CORP.'
+,'WALT DISNEY CO/'
+,'WESTERN GAS PARTNERS LP'
+,'WESTROCK CO'
+,'XEROX CORP'
+)
+
+select left('vistra-20181231.xml', position('-' in 'vistra-20181231.xml')-1)
+select position('-' in 'abvn-20180630.xml')
+
+
+
+
+	
+with ed1 as (	
+	select 
+	edgar.edgar_fndmntl_t1.*
+	,rank() over (partition by sec_qtr, fin_nonfin order by total_assets desc) 	as asset_rank
+	,rank() over (partition by sec_qtr, fin_nonfin order by total_equity asc) 	as equity_rank
+	from edgar.edgar_fndmntl_t1
+	)
+
+,ed2 as (	
+	select
+	ed1.*
+	,asset_rank + equity_rank 													as sum_rank
+	from ed1
+	)
+
+,ed3 as (
+	select 
+	ed2.*
+	,rank() over (partition by sec_qtr, fin_nonfin order by sum_rank asc) 		as combined_rank
+	from ed2
+	)
+
+,ed4 as (
+	select 
+	distinct coalesce(ct.ticker, left(instance, position('-' in instance)-1)) as ed_ticker
+	--,ed3.*
+	from ed3
+	left join edgar.edgar_cik_ticker_view ct
+	on ed3.cik = ct.cik_str
+	where 	(	(combined_rank <= 900 and fin_nonfin = 'non_financial'	)
+			or 	(combined_rank <= 100  and fin_nonfin = 'financial')	)
+	)
+	
+,av as(
+	select 
+	distinct symbol as av_ticker
+	from alpha_vantage.shareprices_daily
+	)
+	
+select
+av_ticker
+,ed_ticker
+,ticker as sp_ticker
+from ed4
+full outer join av
+on ed4.ed_ticker = av.av_ticker
+full outer join alpha_vantage.sp_1000 av1
+on ed4.ed_ticker = av1.ticker
 ;
 
 
 
 
+select * from alpha_vantage.sp_500
+select * from alpha_vantage.sp_500_dlta
+
+
+drop table if exists alpha_vantage.sp_500;
+create table alpha_vantage.sp_500
+	(
+		symbol	text
+		,name	text
+		,gics_sector text
+		,gics_industry text
+		,date_added date
+		,cik int
+		,capture_date date
+	);
+
+alter table alpha_vantage.sp_500 owner to postgres;
+
+
+drop table if exists alpha_vantage.sp_500_dlta;
+create table alpha_vantage.sp_500_dlta
+	(
+		date date
+		,ticker_added	text
+		,name_added	text
+		,ticker_removed text
+		,name_removed text
+		,reason text
+		,capture_date date
+	);
+
+alter table alpha_vantage.sp_500_dlta owner to postgres;
 

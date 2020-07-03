@@ -27,9 +27,9 @@ from zipfile import ZipFile
 # url_list = ['https://www.sec.gov/files/node/add/data_distribution/2020q1.zip']
 
 # Prior quarters
-start_year = 2017
-end_year = 2017
-start_qtr = 1
+start_year = 2020
+end_year = 2020
+start_qtr = 2
 end_qtr = 2
 
 base_url = 'https://www.sec.gov/files/dera/data/financial-statement-data-sets/'
@@ -184,3 +184,90 @@ sec_symbols_json.to_sql(name='company_tickers', con=engine, schema='edgar',
 
 # Close connection
 conn.close()
+
+
+
+
+##############################################################################
+#
+# Load various ticker lists
+#
+##############################################################################
+
+# Connect to postgres database
+engine = create_engine('postgresql://postgres:'+password+
+                        '@localhost:5432/stock_master')
+conn = engine.connect()
+meta = MetaData(engine)
+meta.reflect(schema='alpha_vantage')
+sp_1000     = meta.tables['alpha_vantage.sp_1000']
+rs_1000     = meta.tables['alpha_vantage.rs_1000']
+sp_500      = meta.tables['alpha_vantage.sp_500']
+sp_500_dlta = meta.tables['alpha_vantage.sp_500_dlta']
+
+
+# S&P1000 grab data
+sp_url = 'https://en.wikipedia.org/wiki/List_of_S%26P_1000_companies'
+sp_1000_url = pd.read_html(sp_url)
+sp_1000_wik = sp_1000_url[5]
+sp_1000_wik['capture_date'] = dt.datetime.today().date()
+sp_1000_wik.drop('SEC filings', axis=1, inplace=True)
+sp_1000_wik.rename(columns={'Company': 'company',
+                            'Ticker symbol': 'ticker',
+                            'GICS economic sector': 'gics_sector',
+                            'GICS sub-industry': 'gics_industry',
+                            'CIK': 'cik'},
+                            inplace=True)
+
+# S&P1000 insert to postgres database
+sp_1000_wik.to_sql(name='sp_1000', con=engine, schema='alpha_vantage', 
+                index=False, if_exists='append', method='multi', chunksize=50000)
+
+
+# Russell 1000 grab data
+rs_url = 'https://en.wikipedia.org/wiki/Russell_1000_Index'
+russ_1000_url = pd.read_html(rs_url)
+rs_1000_wik = russ_1000_url[2]
+rs_1000_wik['capture_date'] = dt.datetime.today().date()
+rs_1000_wik.rename(columns={'Company': 'company',
+                            'Ticker': 'ticker'},
+                            inplace=True)
+
+# Russell 1000 insert to postgres database
+rs_1000_wik.to_sql(name='rs_1000', con=engine, schema='alpha_vantage', 
+                index=False, if_exists='append', method='multi', chunksize=50000)
+
+
+# S&P500 grab data
+sp5_url = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies'
+sp_500_url = pd.read_html(sp5_url)
+sp_500_wik = sp_500_url[0]
+sp_500_wik.drop(['SEC filings', 'Headquarters Location','Founded'], axis=1, inplace=True)
+sp_500_wik.columns = ['symbol','name','gics_sector','gics_industry','date_added','cik']
+sp_500_wik['date_added'] = sp_500_wik['date_added'].str.slice(0,10)
+sp_500_wik['capture_date'] = dt.datetime.today().date()
+
+# SP500 insert to postgres database
+sp_500_wik.to_sql(name='sp_500', con=engine, schema='alpha_vantage', 
+                index=False, if_exists='append', method='multi', chunksize=50000)
+
+
+# S&P500 delt grab data
+sp_500_dlta_wik = sp_500_url[1]
+sp_500_dlta_wik.columns = sp_500_dlta_wik.columns.droplevel(0)
+sp_500_dlta_wik.columns = ['date','ticker_added','name_added',
+                            'ticker_removed','name_removed',
+                            'reason']
+sp_500_dlta_wik['capture_date'] = dt.datetime.today().date()
+sp_500_dlta_wik['date'] = pd.to_datetime(sp_500_dlta_wik['date'], infer_datetime_format=True)
+
+# SP500 insert to postgres database
+sp_500_dlta_wik.to_sql(name='sp_500_dlta', con=engine, schema='alpha_vantage', 
+                index=False, if_exists='append', method='multi', chunksize=50000)
+
+
+# Close connection
+conn.close()
+
+# Add https://datahub.io/core/s-and-p-500-companies#python
+

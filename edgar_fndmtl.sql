@@ -13,6 +13,9 @@ with t1 as (
 	sb.name as stock
 	,nm.ddate
 	,nm.adsh
+	,sb.instance
+	,sb.cik
+	,sb.sic
 	,nm.sec_qtr
 	,sb.fy
 	,substring(sb.fp,2,1) as qtr
@@ -42,6 +45,9 @@ with t1 as (
 	and sb.form in ('10-K', '10-Q')
 	-- coreg filter to avoid duplicates
 	and nm.coreg = 'NVS'
+	-- Filer status filter return only larger companies
+	-- refer to notes in edgar_structure.xlxs
+	and sb.afs = '1-LAF'
 	-- FILTERS FOR INVESTIGATION
 	--and nm.adsh in ('0001418819-18-000017','0001104659-19-043831','0001493152-19-012689','0000101829-17-000007')
 	--and sb.name = 'HOME DEPOT INC'--'2U, INC.'--'EATON CORP PLC' --'BB&T CORP'
@@ -58,8 +64,11 @@ with t1 as (
 ,t2 as (
 	select 
 	stock
+	,cik
+	,sic
 	,ddate
 	,adsh
+	,instance
 	,fy
 	,qtr
 	,qtrs
@@ -85,7 +94,7 @@ with t1 as (
 	,sum(case when level = '3' and L3 = 'depr_amort'then amount else 0 end) 	as L3_dep_amt
 	from t1
 	where 1 = 1 
-	group by 1,2,3,4,5,6,7,8,9
+	group by 1,2,3,4,5,6,7,8,9,10,11,12
 	)
 
 ,t3 as (
@@ -192,8 +201,11 @@ with t1 as (
 ,t7 as (
 	select 
 	stock
+	,cik
+	,sic
 	,ddate
 	,t6.adsh
+	,instance
 	,fy
 	,qtr
 	,filed
@@ -214,7 +226,7 @@ with t1 as (
 	,sum(net_income_qtly) 														as net_income_qtly
 	,sum(shares_os_cso)															as shares_os_cso
 	from t6
-	group by 1,2,3,4,5,6,7,8,9
+	group by 1,2,3,4,5,6,7,8,9,10,11,12
 	)
 
 select 
@@ -239,8 +251,11 @@ drop table if exists edgar.edgar_fndmntl_t1;
 create table edgar.edgar_fndmntl_t1
 	(
 	    stock					text
+	    ,cik					int
+	    ,sic					smallint
 		,ddate					date
 		,adsh					char (20)
+		,instance				text
 		,fy						smallint
 		,qtr					text
 		,filed					date
@@ -307,17 +322,23 @@ with t1 as (
 	from t2
 	)
 
-select t3.*
+select 
+coalesce(ct.ticker, left(instance, position('-' in instance)-1)) as ticker
+,t3.*
 from t3
-where 	(	(combined_rank <= 1350 and fin_nonfin = 'non_financial'	)
-		or 	(combined_rank <= 150  and fin_nonfin = 'financial')	)
--- FILTER FOR INVESTIGATION
+left join edgar.edgar_cik_ticker_view ct
+on t3.cik = ct.cik_str
+where 	(	(combined_rank <= 900 and fin_nonfin = 'non_financial'	)
+		or 	(combined_rank <= 100  and fin_nonfin = 'financial')	)
+-- FILTER FOR INVESTIGATION 
+--/*
 and (
 			cash_equiv_st_invest 	= 0  
 		or 	total_equity 			= 0
 		or (net_income_qtly			= 0 and ddate > '2017-12-31')
 		or	shares_os 				= 0
-	)
+		or ticker					= 'use_instance'
+	) --*/
 ;
 
 
@@ -349,6 +370,8 @@ and (
  * 
  * 0000074145-17-000011 - OKLAHOMA GAS & ELECTRIC CO, no cash
  * 
+ * 0001764925-19-000174 - SLACK TECHNOLOGIES, INC., no shares OS
+ * 
  * Exclude REAL ESTATE INVESTMENT TRUSTS 6798??
  * 
  ********************************************************************************************/
@@ -357,11 +380,13 @@ and (
 select * from edgar.edgar_fndmntl_t1 where stock like '%WALMART%' order by 1,2;
 
 select 
-adsh
-, value/1000000 as l1_esco
+*
+--adsh
+--,value/1000000 as l1_esco
 from edgar.num
-where tag = 'EntityCommonStockSharesOutstanding'
-and adsh in ('0001418819-18-000017','0001104659-19-043831','0001493152-19-012689','0000101829-17-000007');
+where 1 = 1
+-- and tag = 'EntityCommonStockSharesOutstanding'
+and adsh in ('0001764925-19-000174');
 
 select count(*) from edgar.num where tag = 'CommonStockSharesOutstanding';
 
