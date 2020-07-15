@@ -1,3 +1,215 @@
+/******************************************************************************
+* 
+* Create ticker to cik view
+* 
+* DEFECTS
+* - This will currently exclude C and GS
+* 
+******************************************************************************/
+
+drop view edgar.edgar_cik_ticker_view;
+
+create or replace view edgar.edgar_cik_ticker_view as 
+		
+select 
+cik_str 
+,ticker 
+,title
+,ticker_count
+from 
+	(
+	select 
+	ct.* 
+	,length(ticker) as len
+	,min(length(ticker)) over (partition by title) as min_len
+	-- This rank causes an issue with C and GS
+	,rank() over (partition by title order by ticker asc) as rnk
+	,count(ticker) over (partition by cik_str) as ticker_count 
+	from edgar.company_tickers ct
+	--where title in ('SPHERIX INC','BERKSHIRE HATHAWAY INC','CITIGROUP INC','GOLDMAN SACHS GROUP INC')
+	) t1
+-- Assume longer tickers relate to non-primary share classes, eg. title = 'SPHERIX INC'
+where len = min_len
+-- In the event of multiple tickers of the same length,
+-- take the first ranked, eg. for title = 'BERKSHIRE HATHAWAY INC',
+-- select 'BRKA' over 'BRKB'
+and rnk = 1
+;
+
+select * from edgar.edgar_cik_ticker_view
+
+
+
+
+/******************************************************************************
+* 
+* Join simfin and edgar for fundamental view
+* 
+* TO DO
+* - Add edgar data
+* 
+******************************************************************************/
+
+select 
+bal.ticker 
+,bal.simfin_id 
+,bal.publish_date 
+,bal.shares_basic 
+,bal.total_assets 
+,bal.total_liab 
+,bal.total_equity 
+,inc.net_income 
+from simfin.us_balance_qtly bal
+inner join simfin.us_income_qtly inc
+on bal.ticker = inc.ticker 
+and bal.simfin_id = inc.simfin_id
+and bal.publish_date = inc.publish_date
+
+union all 
+
+select 
+bal.ticker 
+,bal.simfin_id 
+,bal.publish_date 
+,bal.shares_basic 
+,bal.total_assets 
+,bal.total_liab 
+,bal.total_equity 
+,inc.net_income 
+from simfin.us_balance_banks_qtly bal
+inner join simfin.us_income_banks_qtly inc
+on bal.ticker = inc.ticker 
+and bal.simfin_id = inc.simfin_id
+and bal.publish_date = inc.publish_date
+
+union all 
+
+select 
+bal.ticker 
+,bal.simfin_id 
+,bal.publish_date 
+,bal.shares_basic 
+,bal.total_assets 
+,bal.total_liab 
+,bal.total_equity 
+,inc.op_income as net_income 
+from simfin.us_balance_ins_qtly bal
+inner join simfin.us_income_ins_qtly inc
+on bal.ticker = inc.ticker 
+and bal.simfin_id = inc.simfin_id
+and bal.publish_date = inc.publish_date
+
+
+
+/******************************************************************************
+* 
+* Edgar fundamental data by rank
+* 
+* DEFECTS
+* - ??
+* 
+******************************************************************************/
+
+with t1 as (	
+	select 
+	edgar.edgar_fndmntl_t1.*
+	,rank() over (partition by sec_qtr, fin_nonfin order by total_assets desc) 	as asset_rank
+	,rank() over (partition by sec_qtr, fin_nonfin order by total_equity asc) 	as equity_rank
+	from edgar.edgar_fndmntl_t1
+	)
+
+,t2 as (	
+	select
+	t1.*
+	,asset_rank + equity_rank 													as sum_rank
+	from t1
+	)
+
+,t3 as (
+	select 
+	t2.*
+	,rank() over (partition by sec_qtr, fin_nonfin order by sum_rank asc) 		as combined_rank
+	from t2
+	)
+
+select distinct stock
+from t3
+where 	(	(combined_rank <= 1750 and fin_nonfin = 'non_financial'	)
+		or 	(combined_rank <= 250  and fin_nonfin = 'financial')	)
+
+
+
+/******************************************************************************
+* 
+* Returns data
+* 
+* DEFINITIONS
+* - d01, d30, m01, m03, y01
+* - log, ari
+* - rtn, vol
+* 
+* TO DO
+* - smax
+* 
+******************************************************************************/
+
+-- V1
+		
+with t1 as (
+	select 
+	symbol 
+	,timestamp
+	,adjusted_close 
+	,volume
+	,adjusted_close / lag(adjusted_close, 1) over w_d01 - 1 as d01_ari_rtn
+	,ln(adjusted_close / lag(adjusted_close, 1) over w_d01) as d01_log_rtn
+	,abs(adjusted_close / lag(adjusted_close, 1) over w_d01 - 1) / (volume * adjusted_close / 10e7) as amihud
+	from alpha_vantage.shareprices_daily
+	where symbol in ('WMT', 'JPM')
+	and timestamp > '2020-01-01'
+	window w_d01 as (partition by symbol order by timestamp)
+	)
+
+select 
+t1.*
+,stddev(d01_log_rtn) over w_d20 as d20_log_vol
+,avg(amihud) over w_d20 as d20_amihud
+,rank() over w_d20_rnk as d01_ari_rtn_rnk
+from t1
+window w_d20 as (partition by symbol order by timestamp rows between 19 preceding and current row)
+,w_d20_rnk as (partition by symbol order by d01_ari_rtn rows between 19 preceding and current row)
+
+
+-- V2
+drop view alpha_vantage.returns_view;
+
+create or replace view alpha_vantage.returns_view as 
+	
+	select 
+	sd.symbol
+	,sp5.gics_industry 
+	,sd.timestamp
+	,sd.close
+	,sd.adjusted_close
+	,sd.volume 
+	from alpha_vantage.shareprices_daily sd
+	inner join alpha_vantage.sp_500 sp5
+	on sd.symbol = sp5.symbol 
+	--where symbol in (select symbol from alpha_vantage.sp_500)
+	and sd.timestamp > '2018-01-01'
+	order by 1,3,2
+	
+select * from alpha_vantage.returns_view; 
+
+
+---------------------------------------------
+
+select * from alpha_vantage.sp_500_dlta where ticker_removed = 'JDSU' or ticker_added = 'JDSU'
+
+
+
+---------------------------------------------
+
 select 
 ticker 
 ,min(date) as min_date
@@ -36,75 +248,25 @@ and ticker not in
 	)
 order by 1;
 
----------------------------------------------
 
-with t1 as (	
-	select 
-	edgar.edgar_fndmntl_t1.*
-	,rank() over (partition by sec_qtr, fin_nonfin order by total_assets desc) 	as asset_rank
-	,rank() over (partition by sec_qtr, fin_nonfin order by total_equity asc) 	as equity_rank
-	from edgar.edgar_fndmntl_t1
-	)
-
-,t2 as (	
-	select
-	t1.*
-	,asset_rank + equity_rank 													as sum_rank
-	from t1
-	)
-
-,t3 as (
-	select 
-	t2.*
-	,rank() over (partition by sec_qtr, fin_nonfin order by sum_rank asc) 		as combined_rank
-	from t2
-	)
-
-select distinct stock
-from t3
-where 	(	(combined_rank <= 1750 and fin_nonfin = 'non_financial'	)
-		or 	(combined_rank <= 250  and fin_nonfin = 'financial')	)
 
 		
-		
-/******************************************************************************
-* 
-* Create ticker to cik view
-* 
-******************************************************************************/
-
-drop view edgar.edgar_cik_ticker_view;
-
-create or replace view edgar.edgar_cik_ticker_view as 
-		
-select 
-cik_str 
-,ticker 
-,title 
-from 
-	(
-	select 
-	ct.* 
-	,length(ticker) as len
-	,min(length(ticker)) over (partition by title) as min_len
-	-- This rank causes an issue with C and GS
-	,rank() over (partition by title order by ticker asc) as rnk
-	from edgar.company_tickers ct
-	where title in ('SPHERIX INC','BERKSHIRE HATHAWAY INC','CITIGROUP INC','GOLDMAN SACHS GROUP INC')
-	) t1
--- Assume longer tickers relate to non-primary share classes, eg. title = 'SPHERIX INC'
-where len = min_len
--- In the event of multiple tickers of the same length,
--- take the first ranked, eg. for title = 'BERKSHIRE HATHAWAY INC',
--- select 'BRKA' over 'BRKB'
-and rnk = 1
-;
-
+--------------------------------------------------		
 
 select * from edgar.sub where adsh in ('0001764925-19-000174','0000831001-17-000038')
 
+select * from 
+	(
+	select 
+	ct.* 
+	,count(ticker) over (partition by cik_str) as ticker_count 
+	from edgar.company_tickers ct
+	) t1
+where ticker_count > 1
 
-select * from edgar.edgar_cik_ticker_view
+select count(*) from edgar.company_tickers
+
+select * from edgar.edgar_cik_ticker_view where ticker = 'AEP'
 
 select * 
 --from edgar.company_tickers
@@ -220,7 +382,7 @@ with ed1 as (
 	from ed3
 	left join edgar.edgar_cik_ticker_view ct
 	on ed3.cik = ct.cik_str
-	where 	(	(combined_rank <= 900 and fin_nonfin = 'non_financial'	)
+	where 	(	(combined_rank <= 1400 and fin_nonfin = 'non_financial'	)
 			or 	(combined_rank <= 100  and fin_nonfin = 'financial')	)
 	)
 	
@@ -231,39 +393,19 @@ with ed1 as (
 	)
 	
 select
-av_ticker
-,ed_ticker
-,ticker as sp_ticker
+av.av_ticker
+,ed4.ed_ticker
+,sp5.symbol as sp5_ticker
 from ed4
 full outer join av
 on ed4.ed_ticker = av.av_ticker
-full outer join alpha_vantage.sp_1000 av1
-on ed4.ed_ticker = av1.ticker
+full outer join alpha_vantage.sp_500 sp5
+on ed4.ed_ticker = sp5.symbol
 ;
 
 
 
-
-select * from alpha_vantage.sp_500
-select * from alpha_vantage.sp_500_dlta
-
-
-drop table if exists alpha_vantage.sp_500;
-create table alpha_vantage.sp_500
-	(
-		symbol	text
-		,name	text
-		,gics_sector text
-		,gics_industry text
-		,date_added date
-		,cik int
-		,capture_date date
-	);
-
-alter table alpha_vantage.sp_500 owner to postgres;
-
-
-drop table if exists alpha_vantage.sp_500_dlta;
+--drop table if exists alpha_vantage.sp_500_dlta;
 create table alpha_vantage.sp_500_dlta
 	(
 		date date
@@ -277,3 +419,19 @@ create table alpha_vantage.sp_500_dlta
 
 alter table alpha_vantage.sp_500_dlta owner to postgres;
 
+/*drop table if exists alpha_vantage.sp_500;
+create table alpha_vantage.sp_500
+	(
+		symbol	text
+		,name	text
+		,gics_sector text
+		,gics_industry text
+		,date_added date
+		,cik int
+		,capture_date date
+	);
+
+alter table alpha_vantage.sp_500 owner to postgres;
+*/
+select distinct symbol from alpha_vantage.shareprices_daily
+select

@@ -12,6 +12,7 @@ from sqlalchemy import create_engine, MetaData, Table, text
 import psycopg2
 import pandas as pd
 import numpy as np
+import datetime as dt
 import time
 import requests
 
@@ -42,7 +43,7 @@ tickers = pd.read_sql(
   ,con=conn
   )
 symbols = tickers['ticker'].tolist()
-
+symbols = ['SPY']
 # Symbols need to be batched into groups of 500 in order to align with API call limit
 # (5 API requests per minute; 500 API requests per day)
 
@@ -67,7 +68,7 @@ for symbol in symbols:
 # Format for database
 df_prices = df_prices[['timestamp','open','high','low','close','adjusted_close',
                 'volume','dividend_amount','split_coefficient','symbol']]
-
+df_prices['capture_date'] = dt.datetime.today().date()
 
 # Insert to postgres database
 df_prices.to_sql(name='shareprices_daily', con=engine, schema='alpha_vantage', 

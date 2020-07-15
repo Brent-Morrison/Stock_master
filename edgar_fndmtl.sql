@@ -3,6 +3,9 @@
 * 
 * Create view
 * 
+* ERRORS
+* none
+* 
 ******************************************************************************/
 drop view edgar.edgar_fndmntl_view;
 
@@ -58,7 +61,8 @@ with t1 as (
 	adsh as t11_adsh
 	,value/1000000 as l1_esco
 	from edgar.num
-	where tag = 'EntityCommonStockSharesOutstanding'
+	where tag = 'EntityCommonStockSharesOutstanding' 
+	and coreg = 'NVS'
 	)
 	
 ,t2 as (
@@ -298,6 +302,9 @@ insert into edgar.edgar_fndmntl_t1 select * from edgar.edgar_fndmntl_view;
 * 
 * Rank and filter
 * 
+* ERRORS
+* select * from edgar.edgar_fndmntl_t1 where adsh = '0000004904-17-000019'
+* 
 ******************************************************************************/
 
 with t1 as (	
@@ -324,21 +331,26 @@ with t1 as (
 
 select 
 coalesce(ct.ticker, left(instance, position('-' in instance)-1)) as ticker
+,coalesce(ct.ticker_count, 0) as ticker_count
+,case when left(instance, position('-' in instance)-1) = lower(ct.ticker) then 'ok' else 'check' end as tick_vs_inst
 ,t3.*
 from t3
 left join edgar.edgar_cik_ticker_view ct
 on t3.cik = ct.cik_str
-where 	(	(combined_rank <= 900 and fin_nonfin = 'non_financial'	)
+where 	(	(combined_rank <= 1100 and fin_nonfin = 'non_financial'	)
 		or 	(combined_rank <= 100  and fin_nonfin = 'financial')	)
+and sec_qtr = '2017q2'
+
 -- FILTER FOR INVESTIGATION 
---/*
+/*
 and (
 			cash_equiv_st_invest 	= 0  
 		or 	total_equity 			= 0
 		or (net_income_qtly			= 0 and ddate > '2017-12-31')
 		or	shares_os 				= 0
 		or ticker					= 'use_instance'
-	) --*/
+	) 
+*/
 ;
 
 
@@ -352,13 +364,14 @@ and (
  * 
  * 0001459417-20-000003 - '2U, INC.' 
  * - Cash is doubled due to mapping of both tags detailed below.
- * 'CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents' AND 'CashAndCashEquivalentsAtCarryingValue'
+ * - 'CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents' AND 'CashAndCashEquivalentsAtCarryingValue'
  * - No income returned
  * 
  * 0000732717-17-000021 - AT&T 2017 for no total liabilities, 
- * equity not returned since flagged as 'StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest'
+ * - equity not returned since flagged as 'StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest'
  * 
- * 0000092230-17-000021 - BB&T, no current assets
+ * 0000092230-17-000021 - BB&T 
+ * - no current assets
  * 
  * 0000063908-20-000022 - MCDONALDS CORP, -ve equity not returned
  * 
@@ -376,34 +389,13 @@ and (
  * 
  ********************************************************************************************/
 
-
 select * from edgar.edgar_fndmntl_t1 where stock like '%WALMART%' order by 1,2;
 
-select 
-*
---adsh
---,value/1000000 as l1_esco
-from edgar.num
-where 1 = 1
--- and tag = 'EntityCommonStockSharesOutstanding'
-and adsh in ('0001764925-19-000174');
 
-select count(*) from edgar.num where tag = 'CommonStockSharesOutstanding';
-
-select * from (
-	select 
-	adsh
-	--,ddate
-	,case when tag = 'EntityCommonStockSharesOutstanding' then 1 else 0 end as ecso
-	,case when tag = 'CommonStockSharesOutstanding' then 1 else 0 end as cso
-	from edgar.num 
-	where tag in ('CommonStockSharesOutstanding', 'EntityCommonStockSharesOutstanding')
-	) t1
-where ecso = 1
-and cso = 1
-;
-
-select * from edgar.edgar_fndmntl_t1 
-where adsh = '0000063908-20-000022' 
-and tag = 'LongTermDebtAndCapitalLeaseObligations'
-and coreg = 'NVS'
+	select *
+	--adsh as t11_adsh
+	--,value/1000000 as l1_esco
+	from edgar.num
+	--where tag = 'EntityCommonStockSharesOutstanding' 
+	--and coreg = 'NVS'
+	where adsh = '0001193125-17-160889'

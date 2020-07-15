@@ -24,7 +24,7 @@ from zipfile import ZipFile
 # Note that the current quarter is a different url
 # https://www.sec.gov/files/node/add/data_distribution/2020q1.zip
 
-# url_list = ['https://www.sec.gov/files/node/add/data_distribution/2020q1.zip']
+# url_list = ['https://www.sec.gov/files/node/add/data_distribution/2020q2.zip']
 
 # Prior quarters
 start_year = 2020
@@ -57,7 +57,8 @@ for url in url_list:
     zf = ZipFile(io.BytesIO(resp.content))
     zf_files = zf.infolist()
     
-    # Set this string manually for current url which has differing length
+    # Extract the quarter from the url string
+    # Set this manually for current url which has differing length
     qtr = url[66:72]
 
     # Loop over text files in the downloaded zip file and read to individual 
@@ -162,7 +163,7 @@ log.to_csv('log.csv')
 
 ##############################################################################
 #
-# Load ticker list from SEC website
+# LOAD TICKER LIST FROM SEC WEBSITE
 # at https://www.sec.gov/dera/data/financial-statement-data-sets.html
 #
 ##############################################################################
@@ -190,7 +191,10 @@ conn.close()
 
 ##############################################################################
 #
-# Load various ticker lists
+# LOAD VARIOUS TICKER LISTS
+# The script below does not allow for updating of these tables
+# Use df.drop_duplicates after unioning old (from DB) and new (from web)
+# in order to select only new records
 #
 ##############################################################################
 
@@ -269,5 +273,4 @@ sp_500_dlta_wik.to_sql(name='sp_500_dlta', con=engine, schema='alpha_vantage',
 # Close connection
 conn.close()
 
-# Add https://datahub.io/core/s-and-p-500-companies#python
 
