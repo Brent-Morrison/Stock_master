@@ -333,13 +333,15 @@ select
 coalesce(ct.ticker, left(instance, position('-' in instance)-1)) as ticker
 ,coalesce(ct.ticker_count, 0) as ticker_count
 ,case when left(instance, position('-' in instance)-1) = lower(ct.ticker) then 'ok' else 'check' end as tick_vs_inst
+,case when cash_equiv_st_invest = 0 or cash_equiv_st_invest is null then 'check' else 'ok' end as check_cash
+,case when shares_os = 0 or shares_os is null then 'check' else 'ok' end as check_shares
 ,t3.*
 from t3
 left join edgar.edgar_cik_ticker_view ct
 on t3.cik = ct.cik_str
 where 	(	(combined_rank <= 1100 and fin_nonfin = 'non_financial'	)
 		or 	(combined_rank <= 100  and fin_nonfin = 'financial')	)
-and sec_qtr = '2017q2'
+and sec_qtr like '%q3'
 
 -- FILTER FOR INVESTIGATION 
 /*
@@ -389,13 +391,3 @@ and (
  * 
  ********************************************************************************************/
 
-select * from edgar.edgar_fndmntl_t1 where stock like '%WALMART%' order by 1,2;
-
-
-	select *
-	--adsh as t11_adsh
-	--,value/1000000 as l1_esco
-	from edgar.num
-	--where tag = 'EntityCommonStockSharesOutstanding' 
-	--and coreg = 'NVS'
-	where adsh = '0001193125-17-160889'

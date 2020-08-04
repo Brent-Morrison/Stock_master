@@ -187,24 +187,33 @@ create or replace view alpha_vantage.returns_view as
 	
 	select 
 	sd.symbol
-	,sp5.gics_industry 
+	,sp5.gics_sector
 	,sd.timestamp
 	,sd.close
 	,sd.adjusted_close
 	,sd.volume 
+	,sp.sp500
 	from alpha_vantage.shareprices_daily sd
 	inner join alpha_vantage.sp_500 sp5
 	on sd.symbol = sp5.symbol 
-	--where symbol in (select symbol from alpha_vantage.sp_500)
-	and sd.timestamp > '2018-01-01'
-	order by 1,3,2
+	left join 
+		(
+			select 
+			timestamp
+			,adjusted_close as sp500 
+			from alpha_vantage.shareprices_daily 
+			where symbol = 'GSPC'
+		) sp
+	on sd.timestamp = sp.timestamp
+	where sd.timestamp > '2018-01-01'
+	order by 1,3,2;
 	
 select * from alpha_vantage.returns_view; 
 
 
 ---------------------------------------------
 
-select * from alpha_vantage.sp_500_dlta where ticker_removed = 'JDSU' or ticker_added = 'JDSU'
+select distinct gics_sector from alpha_vantage.sp_500 where ticker_removed = 'JDSU' or ticker_added = 'JDSU'
 
 
 
@@ -233,7 +242,7 @@ order by symbol
 
 ---------------------------------------------
 
-select * from alpha_vantage.shareprices_daily where symbol = 'FTDR'
+select max(timestamp) from alpha_vantage.shareprices_daily where symbol = 'GSPC'
 
 ---------------------------------------------
 
@@ -433,5 +442,42 @@ create table alpha_vantage.sp_500
 
 alter table alpha_vantage.sp_500 owner to postgres;
 */
-select distinct symbol from alpha_vantage.shareprices_daily
-select
+select * from alpha_vantage.shareprices_daily where symbol = 'FDX'
+
+show data_directory;
+
+
+
+
+--------------------------------------------------	
+
+drop table if exists edgar.cik_ticker_master cascade;
+			
+create table edgar.cik_ticker_master			
+	(		
+		ticker	text
+		,stock	text
+		,cik	integer
+		,sic	smallint
+		,ddate	date
+		,fy	smallint
+		,qtr	char (1)
+		,filed	date
+		,sec_qtr	char (6)
+		,valid_year	smallint
+		,fin_nonfin	text
+		,total_assets	numeric
+		,total_equity	numeric
+		,shares_os	numeric
+		,asset_rank	smallint
+		,equity_rank	smallint
+		,sum_rank	smallint
+		,combined_rank	smallint
+	);		
+			
+alter table edgar.cik_ticker_master owner to postgres;			
+			
+copy edgar.cik_ticker_master 			
+from 'C:\Users\brent\Documents\VS_Code\postgres\postgres\cik_ticker_master.csv' 			
+delimiter ',' csv header;			
+
