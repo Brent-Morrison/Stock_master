@@ -1,10 +1,36 @@
 
 /******************************************************************************
 * 
-* Create view
+* Create view to extract fundamantal data from the edgar tables
 * 
-* ERRORS
-* none
+* DATA FORMAT: https://www.sec.gov/edgar/searchedgar/accessing-edgar-data.htm
+* 
+* ISSUES
+* 
+* 0001459417-20-000003 - '2U, INC.' 
+* - Cash is doubled due to mapping of both tags detailed below.
+* - 'CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents' AND 'CashAndCashEquivalentsAtCarryingValue'
+* - No income returned
+* 
+* 0000732717-17-000021 - AT&T 2017 for no total liabilities, 
+* - equity not returned since flagged as 'StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest'
+* 
+* 0000092230-17-000021 - BB&T 
+* - no current assets
+* 
+* 0000063908-20-000022 - MCDONALDS CORP, -ve equity not returned
+* 
+* 0001418819-19-000019 - IRIDIUM re cash balances
+* 
+* 0000798354-18-000009 - FISERV INC re cash balances (tag = 'CashAndCashEquivalentsAtCarryingValueIncludingDiscontinuedOperation')
+* 
+* 0000354950-17-000005 - HOME DEPOT INC, no profit 2017-01-31
+* 
+* 0000074145-17-000011 - OKLAHOMA GAS & ELECTRIC CO, no cash
+* 
+* 0001764925-19-000174 - SLACK TECHNOLOGIES, INC., no shares OS
+* 
+* Exclude REAL ESTATE INVESTMENT TRUSTS 6798??
 * 
 ******************************************************************************/
 drop view edgar.edgar_fndmntl_view;
@@ -246,7 +272,7 @@ on t7.adsh = t11.t11_adsh
 
 /******************************************************************************
 * 
-* Create table
+* Create table to insert view results
 * 
 ******************************************************************************/
 
@@ -297,10 +323,9 @@ insert into edgar.edgar_fndmntl_t1 select * from edgar.edgar_fndmntl_view;
 
 
 
-
 /******************************************************************************
 * 
-* Rank and filter
+* Rank and filter for top n stocks by assets and equity
 * 
 * ERRORS
 * select * from edgar.edgar_fndmntl_t1 where adsh = '0000004904-17-000019'
@@ -330,17 +355,20 @@ with t1 as (
 	)
 
 select 
-coalesce(ct.ticker, left(instance, position('-' in instance)-1)) as ticker
-,coalesce(ct.ticker_count, 0) as ticker_count
-,case when left(instance, position('-' in instance)-1) = lower(ct.ticker) then 'ok' else 'check' end as tick_vs_inst
-,case when cash_equiv_st_invest = 0 or cash_equiv_st_invest is null then 'check' else 'ok' end as check_cash
-,case when shares_os = 0 or shares_os is null then 'check' else 'ok' end as check_shares
-,t3.*
+--coalesce(ct.ticker, left(instance, position('-' in instance)-1)) as ticker
+--,upper(substring(instance, '[A-Za-z]{1,5}')) as ticker_1
+--,coalesce(ct.ticker_count, 0) as ticker_count
+--,case when left(instance, position('-' in instance)-1) = lower(ct.ticker) then 'ok' else 'check' end as tick_vs_inst
+--,case when cash_equiv_st_invest = 0 or cash_equiv_st_invest is null then 'check' else 'ok' end as check_cash
+--,case when shares_os = 0 or shares_os is null then 'check' else 'ok' end as check_shares
+t3.*
 from t3
-left join edgar.edgar_cik_ticker_view ct
-on t3.cik = ct.cik_str
-where 	(	(combined_rank <= 1100 and fin_nonfin = 'non_financial'	)
+-- this left join should be to the new ticker master list
+--left join edgar.edgar_cik_ticker_view ct
+--on t3.cik = ct.cik_str
+where 	(	(combined_rank <= 900 and fin_nonfin = 'non_financial'	)
 		or 	(combined_rank <= 100  and fin_nonfin = 'financial')	)
+--and stock = 'SUNTRUST BANKS INC'
 and sec_qtr like '%q3'
 
 -- FILTER FOR INVESTIGATION 
@@ -354,40 +382,3 @@ and (
 	) 
 */
 ;
-
-
-
-
-/*******************************************************************************************
- * 
- * DATA FORMAT: https://www.sec.gov/edgar/searchedgar/accessing-edgar-data.htm
- * 
- * ISSUES
- * 
- * 0001459417-20-000003 - '2U, INC.' 
- * - Cash is doubled due to mapping of both tags detailed below.
- * - 'CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents' AND 'CashAndCashEquivalentsAtCarryingValue'
- * - No income returned
- * 
- * 0000732717-17-000021 - AT&T 2017 for no total liabilities, 
- * - equity not returned since flagged as 'StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest'
- * 
- * 0000092230-17-000021 - BB&T 
- * - no current assets
- * 
- * 0000063908-20-000022 - MCDONALDS CORP, -ve equity not returned
- * 
- * 0001418819-19-000019 - IRIDIUM re cash balances
- * 
- * 0000798354-18-000009 - FISERV INC re cash balances (tag = 'CashAndCashEquivalentsAtCarryingValueIncludingDiscontinuedOperation')
- * 
- * 0000354950-17-000005 - HOME DEPOT INC, no profit 2017-01-31
- * 
- * 0000074145-17-000011 - OKLAHOMA GAS & ELECTRIC CO, no cash
- * 
- * 0001764925-19-000174 - SLACK TECHNOLOGIES, INC., no shares OS
- * 
- * Exclude REAL ESTATE INVESTMENT TRUSTS 6798??
- * 
- ********************************************************************************************/
-

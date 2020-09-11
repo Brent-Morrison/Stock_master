@@ -49,12 +49,15 @@ df['amihud_3m'] = df.groupby('symbol').amihud.apply(lambda x: x.rolling(60).mean
 df['amihud_vol_3m'] = df.groupby('symbol').amihud.apply(lambda x: x.rolling(60).std()*m.sqrt(252))
 # df['smax_20d'] = df.groupby('symbol').resample('M').rtn_log_1d.transform(lambda x: x.nlargest(5).sum()).reset_index(drop=True)
 # Cannot assign https://stackoverflow.com/questions/20737811/attach-a-calculated-column-to-an-existing-dataframe
+# On a rolling basis https://stackoverflow.com/questions/56555253/pandas-rolling-2nd-largest-value
+# and also https://stackoverflow.com/questions/51445439/speed-up-finding-the-average-of-top-5-numbers-from-a-rolling-window-in-python
 smax_20d_s = df.groupby(['symbol','year','month']).rtn_ari_1d.transform(lambda x: x.nlargest(5).mean()) 
 df['smax_20d'] = smax_20d_s
 
 # Rolling correlations function
 def roll_corr_120(x):
     return pd.DataFrame(x['rtn_ari_1d'].rolling(window=120).corr(x['rtn_ari_1d_mkt']))
+
 df['cor_rtn_1d_mkt_120d'] = df.groupby('symbol')[['rtn_ari_1d','rtn_ari_1d_mkt']].apply(roll_corr_120)
 
 # Rolling beta function
@@ -66,6 +69,7 @@ def roll_beta_120(x):
     beta['beta'] = beta.iloc[:,0] / beta.iloc[:,1]
     beta.drop(beta.columns[[0,1]], axis=1, inplace=True)
     return beta
+
 df['beta_rtn_1d_mkt_120d'] = df.groupby('symbol')[['rtn_ari_1d','rtn_ari_1d_mkt']].apply(roll_beta_120)
 
 # Monthly stock data
@@ -92,6 +96,7 @@ dfm['day'] = 1
 dfm['date'] = pd.to_datetime(dfm[['year','month','day']]).dt.to_period('M').dt.to_timestamp('M')
 dfm.set_index('date', inplace=True)
 dfm.drop(['day'], axis=1, inplace=True)
+# smax_20d needs to on a rolling a basis
 dfm['smax_20d'] = dfm.smax_20d / dfm.vol_ari_20d
 dfm['smax_20d_dcl'] = dfm.groupby('month').smax_20d.transform(lambda x: pd.qcut(x, 10, labels=range(10,0,-1)))
 dfm['cor_rtn_1d_mkt_120d_dcl'] = dfm.groupby('month').cor_rtn_1d_mkt_120d.transform(lambda x: pd.qcut(x, 10, labels=range(10,0,-1)))
@@ -109,8 +114,8 @@ dfm['rtn_ari_12m'] = dfm.groupby('symbol').adjusted_close.apply(lambda x: x.diff
 dfm['rtn_ari_12m'] = dfm['rtn_ari_12m'].shift(periods=1)
 dfm['rtn_ari_12m_dcl'] = dfm.groupby('month').rtn_ari_12m.transform(lambda x: pd.qcut(x, 10, labels=range(10,0,-1)))
 dfm['rtn_ari_12m_ind_dcl'] = dfm.groupby(['month','gics_sector']).rtn_ari_12m.transform(lambda x: pd.qcut(x, 10, labels=range(10,0,-1)))
-dfm['cor_rtn_1d_mkt_120d_dcl'] = dfm.groupby('month').cor_rtn_1d_mkt_120d.transform(lambda x: pd.qcut(x, 10, labels=range(10,0,-1)))
-dfm['beta_rtn_1d_mkt_120d_dcl'] = dfm.groupby('month').beta_rtn_1d_mkt_120d.transform(lambda x: pd.qcut(x, 10, labels=range(10,0,-1)))
+#dfm['cor_rtn_1d_mkt_120d_dcl'] = dfm.groupby('month').cor_rtn_1d_mkt_120d.transform(lambda x: pd.qcut(x, 10, labels=range(10,0,-1)))
+#dfm['beta_rtn_1d_mkt_120d_dcl'] = dfm.groupby('month').beta_rtn_1d_mkt_120d.transform(lambda x: pd.qcut(x, 10, labels=range(10,0,-1)))
 dfm['fwd_rtn_ari_1m'] = dfm['rtn_ari_1m'].shift(periods=-1)
 dfm['fwd_rtn_ari_3m'] = dfm['rtn_ari_3m'].shift(periods=-3)
 
@@ -132,7 +137,15 @@ dfm.drop(['day'], axis=1, inplace=True)
 conn.close()
 
 
+
+
+##############################################################################
+#
 # TESTING
+# 
+#
+##############################################################################
+
 dfm.loc['2020-06-30']['gics_sector'].value_counts()
 test = dfm.query('date == "2020-06-30" & gics_sector == "Energy"')
 

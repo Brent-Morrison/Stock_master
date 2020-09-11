@@ -524,75 +524,75 @@ sic_mapping,8888,FOREIGN GOVERNMENTS,Office of International Corp Fin,Services,P
 sic_mapping,8900,"SERVICES-SERVICES, NEC",Office of Trade & Services,Services,Miscellaneous Services,"https://www.sec.gov/info/edgar/siccodes.htm, https://www.osha.gov/pls/imis/sic_manual.html",24/05/2020,na
 sic_mapping,9721,INTERNATIONAL AFFAIRS,Office of International Corp Fin,Public Administration,National Security And International Affairs,"https://www.sec.gov/info/edgar/siccodes.htm, https://www.osha.gov/pls/imis/sic_manual.html",24/05/2020,na
 sic_mapping,9995,NON-OPERATING ESTABLISHMENTS,Office of Real Estate & Construction,Public Administration,Nonclassifiable Establishments,"https://www.sec.gov/info/edgar/siccodes.htm, https://www.osha.gov/pls/imis/sic_manual.html",24/05/2020,na
-simfin_industries_ref,IndustryId,Sector,Industry,na,na,na,na,na
-simfin_industries,100001,Industrials,Industrial Products,na,na,na,na,na
-simfin_industries,100002,Industrials,Business Services,na,na,na,na,na
-simfin_industries,100003,Industrials,Engineering & Construction,na,na,na,na,na
-simfin_industries,100004,Industrials,Waste Management,na,na,na,na,na
-simfin_industries,100005,Industrials,Industrial Distribution,na,na,na,na,na
-simfin_industries,100006,Industrials,Airlines,na,na,na,na,na
-simfin_industries,100007,Industrials,Consulting & Outsourcing,na,na,na,na,na
-simfin_industries,100008,Industrials,Aerospace & Defense,na,na,na,na,na
-simfin_industries,100009,Industrials,Farm & Construction Machinery,na,na,na,na,na
-simfin_industries,100010,Industrials,Transportation & Logistics,na,na,na,na,na
-simfin_industries,100011,Industrials,Employment Services,na,na,na,na,na
-simfin_industries,100012,Industrials,Truck Manufacturing,na,na,na,na,na
-simfin_industries,100013,Industrials,Conglomerates,na,na,na,na,na
-simfin_industries,101001,Technology,Computer Hardware,na,na,na,na,na
-simfin_industries,101002,Technology,Online Media,na,na,na,na,na
-simfin_industries,101003,Technology,Application Software,na,na,na,na,na
-simfin_industries,101004,Technology,Semiconductors,na,na,na,na,na
-simfin_industries,101005,Technology,Communication Equipment,na,na,na,na,na
-simfin_industries,102001,Consumer Defensive,Retail - Defensive,na,na,na,na,na
-simfin_industries,102002,Consumer Defensive,Consumer Packaged Goods,na,na,na,na,na
-simfin_industries,102003,Consumer Defensive,Tobacco Products,na,na,na,na,na
-simfin_industries,102004,Consumer Defensive,Beverages - Alcoholic,na,na,na,na,na
-simfin_industries,102005,Consumer Defensive,Beverages - Non-Alcoholic,na,na,na,na,na
-simfin_industries,102006,Consumer Defensive,Education,na,na,na,na,na
-simfin_industries,103001,Consumer Cyclical,Entertainment,na,na,na,na,na
-simfin_industries,103002,Consumer Cyclical,Retail - Apparel & Specialty,na,na,na,na,na
-simfin_industries,103003,Consumer Cyclical,Restaurants,na,na,na,na,na
-simfin_industries,103004,Consumer Cyclical,Manufacturing - Apparel & Furniture,na,na,na,na,na
-simfin_industries,103005,Consumer Cyclical,Autos,na,na,na,na,na
-simfin_industries,103011,Consumer Cyclical,Advertising & Marketing Services,na,na,na,na,na
-simfin_industries,103013,Consumer Cyclical,Homebuilding & Construction,na,na,na,na,na
-simfin_industries,103015,Consumer Cyclical,Travel & Leisure,na,na,na,na,na
-simfin_industries,103018,Consumer Cyclical,Packaging & Containers,na,na,na,na,na
-simfin_industries,103020,Consumer Cyclical,Personal Services,na,na,na,na,na
-simfin_industries,103026,Consumer Cyclical,Publishing,na,na,na,na,na
-simfin_industries,104001,Financial Services,Asset Management,na,na,na,na,na
-simfin_industries,104002,Financial Services,Banks,na,na,na,na,na
-simfin_industries,104003,Financial Services,Brokers & Exchanges,na,na,na,na,na
-simfin_industries,104004,Financial Services,Insurance - Life,na,na,na,na,na
-simfin_industries,104005,Financial Services,Insurance,na,na,na,na,na
-simfin_industries,104006,Financial Services,Insurance - Property & Casualty,na,na,na,na,na
-simfin_industries,104007,Financial Services,Credit Services,na,na,na,na,na
-simfin_industries,104013,Financial Services,Insurance - Specialty,na,na,na,na,na
-simfin_industries,105001,Utilities,Utilities - Regulated,na,na,na,na,na
-simfin_industries,105002,Utilities,Utilities - Independent Power Producers,na,na,na,na,na
-simfin_industries,106001,Healthcare,Medical Diagnostics & Research,na,na,na,na,na
-simfin_industries,106002,Healthcare,Biotechnology,na,na,na,na,na
-simfin_industries,106003,Healthcare,Medical Instruments & Equipment,na,na,na,na,na
-simfin_industries,106004,Healthcare,Medical Devices,na,na,na,na,na
-simfin_industries,106005,Healthcare,Drug Manufacturers,na,na,na,na,na
-simfin_industries,106006,Healthcare,Health Care Plans,na,na,na,na,na
-simfin_industries,106011,Healthcare,Health Care Providers,na,na,na,na,na
-simfin_industries,106014,Healthcare,Medical Distribution,na,na,na,na,na
-simfin_industries,107001,Energy,Oil & Gas - Refining & Marketing,na,na,na,na,na
-simfin_industries,107002,Energy,Oil & Gas - E&P,na,na,na,na,na
-simfin_industries,107003,Energy,Oil & Gas - Midstream,na,na,na,na,na
-simfin_industries,107004,Energy,Oil & Gas - Services,na,na,na,na,na
-simfin_industries,107005,Energy,Oil & Gas - Integrated,na,na,na,na,na
-simfin_industries,107006,Energy,Oil & Gas - Drilling,na,na,na,na,na
-simfin_industries,108001,Business Services,Communication Services,na,na,na,na,na
-simfin_industries,108002,Business Services,Consulting,na,na,na,na,na
-simfin_industries,109001,Real Estate,REITs,na,na,na,na,na
-simfin_industries,109002,Real Estate,Real Estate Services,na,na,na,na,na
-simfin_industries,110001,Basic Materials,Chemicals,na,na,na,na,na
-simfin_industries,110002,Basic Materials,Forest Products,na,na,na,na,na
-simfin_industries,110003,Basic Materials,Agriculture,na,na,na,na,na
-simfin_industries,110004,Basic Materials,Metals & Mining,na,na,na,na,na
-simfin_industries,110005,Basic Materials,Building Materials,na,na,na,na,na
-simfin_industries,110006,Basic Materials,Coal,na,na,na,na,na
-simfin_industries,110007,Basic Materials,Steel,na,na,na,na,na
-simfin_industries,111001,Other,Diversified Holdings,na,na,na,na,na
+simfin_industries_ref,IndustryId,Sector,Industry,Industry_v2,na,na,na,na
+simfin_industries,100001,Industrials,Industrial Products,Industrial Products,na,na,na,na
+simfin_industries,100002,Industrials,Business Services,Business Services,na,na,na,na
+simfin_industries,100003,Industrials,Engineering & Construction,Engineering & Construction,na,na,na,na
+simfin_industries,100004,Industrials,Waste Management,Waste Management,na,na,na,na
+simfin_industries,100005,Industrials,Industrial Distribution,Industrial Distribution,na,na,na,na
+simfin_industries,100006,Industrials,Airlines,Airlines,na,na,na,na
+simfin_industries,100007,Industrials,Consulting & Outsourcing,Consulting & Outsourcing,na,na,na,na
+simfin_industries,100008,Industrials,Aerospace & Defense,Aerospace & Defense,na,na,na,na
+simfin_industries,100009,Industrials,Farm & Construction Machinery,Farm & Construction Machinery,na,na,na,na
+simfin_industries,100010,Industrials,Transportation & Logistics,Transportation & Logistics,na,na,na,na
+simfin_industries,100011,Industrials,Employment Services,Employment Services,na,na,na,na
+simfin_industries,100012,Industrials,Truck Manufacturing,Truck Manufacturing,na,na,na,na
+simfin_industries,100013,Industrials,Conglomerates,Conglomerates,na,na,na,na
+simfin_industries,101001,Technology,Computer Hardware,Computer Hardware,na,na,na,na
+simfin_industries,101002,Technology,Online Media,Online Media,na,na,na,na
+simfin_industries,101003,Technology,Application Software,Application Software,na,na,na,na
+simfin_industries,101004,Technology,Semiconductors,Semiconductors,na,na,na,na
+simfin_industries,101005,Technology,Communication Equipment,Communication Equipment,na,na,na,na
+simfin_industries,102001,Consumer Defensive,Retail - Defensive,Retail - Defensive,na,na,na,na
+simfin_industries,102002,Consumer Defensive,Consumer Packaged Goods,Consumer Packaged Goods,na,na,na,na
+simfin_industries,102003,Consumer Defensive,Tobacco Products,Tobacco Products,na,na,na,na
+simfin_industries,102004,Consumer Defensive,Beverages - Alcoholic,Beverages,na,na,na,na
+simfin_industries,102005,Consumer Defensive,Beverages - Non-Alcoholic,Beverages,na,na,na,na
+simfin_industries,102006,Consumer Defensive,Education,Education,na,na,na,na
+simfin_industries,103001,Consumer Cyclical,Entertainment,Entertainment,na,na,na,na
+simfin_industries,103002,Consumer Cyclical,Retail - Apparel & Specialty,Retail - Apparel & Specialty,na,na,na,na
+simfin_industries,103003,Consumer Cyclical,Restaurants,Restaurants,na,na,na,na
+simfin_industries,103004,Consumer Cyclical,Manufacturing - Apparel & Furniture,Manufacturing - Apparel & Furniture,na,na,na,na
+simfin_industries,103005,Consumer Cyclical,Autos,Autos,na,na,na,na
+simfin_industries,103011,Consumer Cyclical,Advertising & Marketing Services,Advertising & Marketing Services,na,na,na,na
+simfin_industries,103013,Consumer Cyclical,Homebuilding & Construction,Homebuilding & Construction,na,na,na,na
+simfin_industries,103015,Consumer Cyclical,Travel & Leisure,Travel & Leisure,na,na,na,na
+simfin_industries,103018,Consumer Cyclical,Packaging & Containers,Packaging & Containers,na,na,na,na
+simfin_industries,103020,Consumer Cyclical,Personal Services,Personal Services,na,na,na,na
+simfin_industries,103026,Consumer Cyclical,Publishing,Publishing,na,na,na,na
+simfin_industries,104001,Financial Services,Asset Management,Asset Management,na,na,na,na
+simfin_industries,104002,Financial Services,Banks,Banks,na,na,na,na
+simfin_industries,104003,Financial Services,Brokers & Exchanges,Brokers & Exchanges,na,na,na,na
+simfin_industries,104004,Financial Services,Insurance - Life,Insurance,na,na,na,na
+simfin_industries,104005,Financial Services,Insurance,Insurance,na,na,na,na
+simfin_industries,104006,Financial Services,Insurance - Property & Casualty,Insurance,na,na,na,na
+simfin_industries,104007,Financial Services,Credit Services,Credit Services,na,na,na,na
+simfin_industries,104013,Financial Services,Insurance - Specialty,Insurance,na,na,na,na
+simfin_industries,105001,Utilities,Utilities - Regulated,Utilities,na,na,na,na
+simfin_industries,105002,Utilities,Utilities - Independent Power Producers,Utilities,na,na,na,na
+simfin_industries,106001,Healthcare,Medical Diagnostics & Research,Medical Devices,na,na,na,na
+simfin_industries,106002,Healthcare,Biotechnology,Biotechnology,na,na,na,na
+simfin_industries,106003,Healthcare,Medical Instruments & Equipment,Medical Devices,na,na,na,na
+simfin_industries,106004,Healthcare,Medical Devices,Medical Devices,na,na,na,na
+simfin_industries,106005,Healthcare,Drug Manufacturers,Drug Manufacturers,na,na,na,na
+simfin_industries,106006,Healthcare,Health Care Plans,Health Care Plans,na,na,na,na
+simfin_industries,106011,Healthcare,Health Care Providers,Health Care Plans,na,na,na,na
+simfin_industries,106014,Healthcare,Medical Distribution,Medical Distribution,na,na,na,na
+simfin_industries,107001,Energy,Oil & Gas - Refining & Marketing,Oil & Gas,na,na,na,na
+simfin_industries,107002,Energy,Oil & Gas - E&P,Oil & Gas,na,na,na,na
+simfin_industries,107003,Energy,Oil & Gas - Midstream,Oil & Gas,na,na,na,na
+simfin_industries,107004,Energy,Oil & Gas - Services,Oil & Gas,na,na,na,na
+simfin_industries,107005,Energy,Oil & Gas - Integrated,Oil & Gas,na,na,na,na
+simfin_industries,107006,Energy,Oil & Gas - Drilling,Oil & Gas,na,na,na,na
+simfin_industries,108001,Business Services,Communication Services,Communication Services,na,na,na,na
+simfin_industries,108002,Business Services,Consulting,Consulting,na,na,na,na
+simfin_industries,109001,Real Estate,REITs,REITs,na,na,na,na
+simfin_industries,109002,Real Estate,Real Estate Services,Real Estate Services,na,na,na,na
+simfin_industries,110001,Basic Materials,Chemicals,Chemicals,na,na,na,na
+simfin_industries,110002,Basic Materials,Forest Products,Forest Products,na,na,na,na
+simfin_industries,110003,Basic Materials,Agriculture,Agriculture,na,na,na,na
+simfin_industries,110004,Basic Materials,Metals & Mining,Metals & Mining,na,na,na,na
+simfin_industries,110005,Basic Materials,Building Materials,Building Materials,na,na,na,na
+simfin_industries,110006,Basic Materials,Coal,Coal,na,na,na,na
+simfin_industries,110007,Basic Materials,Steel,Steel,na,na,na,na
+simfin_industries,111001,Other,Diversified Holdings,Diversified Holdings,na,na,na,na
