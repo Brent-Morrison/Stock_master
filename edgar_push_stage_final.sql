@@ -1,16 +1,16 @@
-INSERT INTO edgar.sub_bad
-	SELECT *
-	FROM edgar.sub_stage AS s
-	WHERE EXISTS (
-		SELECT 'x'
-		FROM edgar.sub AS f
-		WHERE f.adsh = s.adsh
+insert into edgar.sub_bad
+	select *
+	from edgar.sub_stage as s
+	where exists (
+		select 'x'
+		from edgar.sub as f
+		where f.adsh = s.adsh
 		)
 ;
 
-INSERT INTO edgar.sub
-	SELECT 
-	COALESCE(adsh, 'NVS')
+insert into edgar.sub
+	select 
+	coalesce(adsh, 'nvs')
 	,cik
 	,name
 	,sic
@@ -19,87 +19,87 @@ INSERT INTO edgar.sub
 	,cityba
 	,zipba
 	,former
-	,TO_DATE(changed::text, 'YYYYMMDD')
+	,to_date(changed::text, 'yyyymmdd')
 	,afs
-	,CAST(wksi AS BOOLEAN)
+	,cast(wksi as boolean)
 	,fye
 	,form
-	,TO_DATE(period::text, 'YYYYMMDD')
+	,to_date(period::text, 'yyyymmdd')
 	,fy
 	,fp
-	,TO_DATE(filed::text, 'YYYYMMDD')
-	,CAST(prevrpt AS BOOLEAN)
+	,to_date(filed::text, 'yyyymmdd')
+	,cast(prevrpt as boolean)
 	,detail
 	,instance
 	,nciks
 	,aciks
 	,sec_qtr
-	FROM edgar.sub_stage
-ON CONFLICT (adsh) 
-DO NOTHING
+	from edgar.sub_stage
+on conflict (adsh) 
+do nothing
 ;
 
 
 
-INSERT INTO edgar.tag_bad
-	SELECT *
-	FROM edgar.tag_stage AS s
-	WHERE EXISTS (
-		SELECT 'x'
-		FROM edgar.tag AS f
-		WHERE f.tag = s.tag
-		AND f.version = s.version
+insert into edgar.tag_bad
+	select *
+	from edgar.tag_stage as s
+	where exists (
+		select 'x'
+		from edgar.tag as f
+		where f.tag = s.tag
+		and f.version = s.version
 		)
 ;
 
-INSERT INTO edgar.tag
-	SELECT 
-	COALESCE(tag, 'NVS')
-	,COALESCE(version, 'NVS')
-	,CAST(custom AS BOOLEAN)
-	,CAST(abstract AS BOOLEAN)
+insert into edgar.tag
+	select 
+	coalesce(tag, 'NVS')
+	,coalesce(version, 'NVS')
+	,cast(custom as boolean)
+	,cast(abstract as boolean)
 	,datatype
 	,iord
 	,crdr
 	,tlabel
 	,doc
 	,sec_qtr
-	FROM edgar.tag_stage
-ON CONFLICT (tag, version) 
-DO NOTHING
+	from edgar.tag_stage
+on conflict (tag, version) 
+do nothing
 ;
 
 
 
-INSERT INTO edgar.num_bad
-	SELECT *
-	FROM edgar.num_stage AS s
-	WHERE EXISTS (
-		SELECT 'x'
-		FROM edgar.num AS f
-		WHERE f.adsh = s.adsh
-		AND f.tag = s.tag
-		AND f.version = s.version
-		AND f.ddate = to_date(s.ddate::text, 'YYYYMMDD')
-		AND f.qtrs = s.qtrs
-		AND f.uom = s.uom
-		AND f.coreg = s.coreg
+insert into edgar.num_bad
+	select *
+	from edgar.num_stage as s
+	where exists (
+		select 'x'
+		from edgar.num as f
+		where f.adsh = s.adsh
+		and f.tag = s.tag
+		and f.version = s.version
+		and f.ddate = to_date(s.ddate::text, 'yyyymmdd')
+		and f.qtrs = s.qtrs
+		and f.uom = s.uom
+		and f.coreg = s.coreg
 		)
 ;
 
-INSERT INTO edgar.num
-	SELECT 
+insert into edgar.num
+	select 
 	adsh
 	,tag
 	,version
-	,to_date(ddate::text, 'YYYYMMDD')
+	,to_date(ddate::text, 'yyyymmdd')
 	,qtrs
 	,uom
-	,COALESCE(coreg, 'NVS')
+	,coalesce(coreg, 'NVS')
 	,value
 	,footnote
 	,sec_qtr
-	FROM edgar.num_stage
-ON CONFLICT (adsh, tag, version, ddate, qtrs, uom, coreg) 
-DO NOTHING
+	from edgar.num_stage
+on conflict (adsh, tag, version, ddate, qtrs, uom, coreg) 
+do nothing
 ;

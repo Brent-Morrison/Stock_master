@@ -42,159 +42,9 @@ select * from edgar.edgar_cik_ticker_view
 
 
 
-/******************************************************************************
-* 
-* Create ticker list based on "instance record" in the sub table
-* 
-* DEFECTS
-* - incomplete
-* 
-******************************************************************************/
-
-select 
-sb.*
-,count(cik) over (partition by cik, sub_tkr_1) as ticker_1_count
-,ct.ct_tickers
-,case 
-	when sb.sub_tkr_1 = any(ct.ct_tickers) 
-	and  sb.sub_tkr_2 = any(ct.ct_tickers) then 1 
-	else 0 
-	end as filter1
-,case 
-	when sub_tkr_2 !~ '[[:digit:]]' then 1
-	else 0
-	end as filter2
-from 
-	(
-		select 
-	    cik
-	    ,upper(substring(instance, '[A-Za-z]{1,5}')) as sub_tkr_1
-	    ,length(substring(instance, '[A-Za-z]{1,5}')) as sub_tkr_1_len
-	    ,upper(left(instance, position('-' in instance)-1)) as sub_tkr_2
-	    ,length(left(instance, position('-' in instance)-1)) as sub_tkr_2_len
-		from edgar.sub
-		where form in ('10-K', '10-Q')
-		and afs = '1-LAF'
-		and length(left(instance, position('-' in instance)-1)) < 6
-		and upper(substring(instance, '[A-Za-z]{1,5}')) != 'FY'
-		and upper(substring(instance, '[A-Za-z]{1,5}')) != 'FORM'
-		group by 1,2,3,4,5
-		--order by 1
-	) sb
-
-left join 
-	(	-- company tickers data from sec website
-		-- 
-	    select 
-	    cik_str
-	    ,array_agg(ticker) as ct_tickers
-	    from edgar.company_tickers
-	    group by cik_str
-    ) ct
-on sb.cik = ct.cik_str
 
 
 
-/******************************************************************************
-* 
-* Join simfin and edgar for fundamental view
-* 
-* TO DO
-* - Add edgar data
-* 
-******************************************************************************/
-
-with t1 as (
-	
-	select 
-	bal.ticker 
-	,bal.simfin_id 
-	,bal.fiscal_year
-	,bal.fiscal_period
-	,bal.report_date
-	,bal.publish_date 
-	,bal.shares_basic / 1e6 			as shares_basic
-	,bal.cash_equiv_st_invest / 1e6 	as cash_equiv_st_invest
-	,bal.total_cur_assets / 1e6			as total_cur_assets
-	,0 									as intang_asset
-	,bal.total_noncur_assets / 1e6 		as total_noncur_assets
-	,bal.total_assets / 1e6 			as total_assets
-	,bal.st_debt / 1e6 					as st_debt
-	,bal.total_cur_liab / 1e6 			as total_cur_liab
-	,bal.lt_debt / 1e6 					as lt_debt
-	,bal.total_noncur_liab / 1e6 		as total_noncur_liab
-	,bal.total_liab / 1e6 				as total_liab
-	,bal.total_equity / 1e6 			as total_equity
-	,inc.net_income / 1e6				as net_income
-	from simfin.us_balance_qtly bal
-	inner join simfin.us_income_qtly inc
-	on bal.ticker = inc.ticker 
-	and bal.simfin_id = inc.simfin_id
-	and bal.publish_date = inc.publish_date
-	
-	union all 
-	
-	select 
-	bal.ticker 
-	,bal.simfin_id 
-	,bal.fiscal_year
-	,bal.fiscal_period
-	,bal.report_date
-	,bal.publish_date 
-	,bal.shares_basic / 1e6 			as shares_basic
-	,bal.cash_equiv_st_invest / 1e6 	as cash_equiv_st_invest
-	,0 									as total_cur_assets
-	,0 									as intang_asset
-	,0 									as total_noncur_assets
-	,bal.total_assets / 1e6 			as total_assets
-	,bal.st_debt / 1e6 					as st_debt
-	,0 									as total_cur_liab
-	,bal.lt_debt / 1e6 					as lt_debt
-	,0 									as total_noncur_liab
-	,bal.total_liab / 1e6 				as total_liab
-	,bal.total_equity / 1e6 			as total_equity
-	,inc.net_income / 1e6 				as net_income
-	from simfin.us_balance_banks_qtly bal
-	inner join simfin.us_income_banks_qtly inc
-	on bal.ticker = inc.ticker 
-	and bal.simfin_id = inc.simfin_id
-	and bal.publish_date = inc.publish_date
-	
-	union all 
-	
-	select 
-	bal.ticker 
-	,bal.simfin_id 
-	,bal.fiscal_year
-	,bal.fiscal_period
-	,bal.report_date
-	,bal.publish_date 
-	,bal.shares_basic / 1e6 			as shares_basic
-	,bal.cash_equiv_st_invest / 1e6 	as cash_equiv_st_invest
-	,0 									as total_cur_assets
-	,0 									as intang_asset
-	,0 									as total_noncur_assets
-	,bal.total_assets / 1e6 			as total_assets
-	,bal.st_debt / 1e6 					as st_debt
-	,0 									as total_cur_liab
-	,bal.lt_debt / 1e6 					as lt_debt
-	,0 									as total_noncur_liab
-	,0 									as total_liab 
-	,bal.total_equity / 1e6 			as total_equity
-	,inc.op_income / 1e6 				as net_income
-	from simfin.us_balance_ins_qtly bal
-	inner join simfin.us_income_ins_qtly inc
-	on bal.ticker = inc.ticker 
-	and bal.simfin_id = inc.simfin_id
-	and bal.publish_date = inc.publish_date
-	)
-
-select
-extract (year from t1.publish_date) as yr
-,extract (quarter from t1.publish_date) as qtr
-,concat(extract (year from t1.publish_date), 'q', extract (quarter from t1.publish_date)) as sec_qtr
-,t1.* 
-from t1
 
 
 /******************************************************************************
@@ -212,7 +62,7 @@ ticker
 ,max(date) as max_date
 ,count(*) 
 from simfin.us_shareprices_daily
-where ticker not like ('%old%')
+where ticker = 'FOX'
 group by 1
 order by 1;
 
@@ -224,7 +74,8 @@ symbol
 ,max(timestamp) as max_date
 ,count(*) as records
 from alpha_vantage.shareprices_daily 
-group by 1
+where symbol = 'FOX'
+group by symbol
 order by symbol
 
 ---------------------------------------------
@@ -318,11 +169,11 @@ show data_directory;
 
 select * from alpha_vantage.shareprices_daily where symbol is null -- order by "timestamp" desc
 
-select * from alpha_vantage.shareprices_daily where symbol = 'CSCO' order by "timestamp" desc 
+select * from alpha_vantage.shareprices_daily where symbol = 'TEVA' order by "timestamp" desc 
 
-delete from alpha_vantage.shareprices_daily where symbol = 'ATW' and "timestamp" = '2020-06-18'
+--delete from alpha_vantage.shareprices_daily where symbol = 'SHP' and "timestamp" = '2020-06-18'
 
-select length(symbol) from alpha_vantage.shareprices_daily where symbol like '%ADM%' and "timestamp" = '2000-12-29'
+select length(symbol) from alpha_vantage.shareprices_daily where symbol like '%ETP%' and "timestamp" = '2000-12-29'
 
 select max("timestamp") from alpha_vantage.shareprices_daily where symbol = 'ADM'
 
@@ -332,7 +183,7 @@ order by last_date_in_db desc, symbol asc
 
 select * from alpha_vantage.returns_view
 
-select * from edgar.company_tickers where cik_str = 70858
+select * from edgar.company_tickers where cik_str = 1161154
 
 --------------------------------------------------	
 
@@ -442,21 +293,7 @@ sf_sic.max_sic
 ,tickers desc
 
 
---------------------------------------------------	
-
--- ticker_excl
-
-drop table if exists alpha_vantage.ticker_excl cascade;
-			
-create table alpha_vantage.ticker_excl			
-	(		
-		ticker	text
-		,last_date_in_db date
-		,price	numeric
-		,last_av_date date
-	);		
-			
-alter table alpha_vantage.ticker_excl owner to postgres;	
+	
 
 alter table alpha_vantage.ticker_excl add column status text;
 
@@ -610,3 +447,17 @@ on t1.cik = t2.cik
 
 select * from edgar.sub where cik in (23082,1688568) --(1001039, 1744489, 1363829)
 select * from edgar.company_tickers where cik_str in (1001039, 1744489)  -- ORIGINAL NOT IN 'company_tickers'
+select ticker, industry_id from simfin.us_companies
+select * from edgar.sub where adsh = '0001564590-19-008308'
+select * from edgar.edgar_fndmntl_t1 where total_assets = 13560.6  --adsh = '0001564590-19-008308' --
+select * from alpha_vantage.active_delisted where symbol = 'ACT'
+select * from edgar.company_tickers where cik_str = 1067983  --ticker like '%%' --
+select * from edgar.company_tickers where ticker like '%BRK%'
+
+select * from edgar.pre where adsh = '0001437749-12-008459'
+
+
+
+
+
+

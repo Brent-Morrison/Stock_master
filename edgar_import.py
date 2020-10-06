@@ -164,7 +164,7 @@ log.to_csv('log.csv')
 ##############################################################################
 #
 # LOAD TICKER LIST FROM SEC WEBSITE
-# at https://www.sec.gov/dera/data/financial-statement-data-sets.html
+# at https://www.sec.gov/files/company_tickers.json
 #
 ##############################################################################
 
