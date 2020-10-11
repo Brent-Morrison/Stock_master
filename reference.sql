@@ -1,6 +1,80 @@
 /******************************************************************************
 * 
-* DESCRIPTION: reference.ticker_cik_sic_ind
+* reference.lookup_csv
+* 
+* DESCRIPTION: 
+* Create table for variance lookups.
+* https://stackoverflow.com/questions/14083311/permission-denied-when-trying-to-import-a-csv-file-from-pgadmin
+* 
+* TO DO:
+* add IndefiniteLivedLicenseAgreements & OtherIntangibleAssetsNet to 'intang' per 0000732717-17-000021
+* add LongTermDebtAndCapitalLeaseObligations re 0000732717-17-000021
+* 
+******************************************************************************/
+
+select * from reference.lookup;
+
+drop table if exists reference.lookup_csv cascade;
+
+create table reference.lookup_csv
+	(
+		lookup_table	text	
+		,lookup_ref 	text
+		,lookup_val1	text
+		,lookup_val2	text
+		,lookup_val3	text
+		,lookup_val4	text
+		,lookup_val5	text
+		,lookup_val6	text
+		,lookup_val7	text
+	);
+
+alter table reference.lookup_csv owner to postgres;
+
+copy reference.lookup_csv 
+from 'C:\Users\brent\Documents\VS_Code\postgres\postgres\edgar_lookups.csv' 
+delimiter ',' csv header;
+
+
+-- Derive depreciation and amortisation for addition to lookups
+
+drop table if exists reference.lookup cascade;
+
+create table reference.lookup as 
+	select * from reference.lookup_csv
+	
+	union all 
+	
+	select
+	'tag_mapping' as lookup_table
+	,tag 
+	,'1' as lookup_val1
+	,'1' as lookup_val2
+	,'3' as lookup_val3
+	,'na' as lookup_val4
+	,'na' as lookup_val5
+	,'depr_amort' as lookup_val6
+	,'na' as lookup_val7
+	from 
+		(
+			select distinct stmt, tag 
+			from edgar.pre 
+			where stmt = 'CF' 
+			and (lower(tag) like '%depletion%' or lower(tag) like '%depreciation%' or lower(tag) like '%amort%')
+			and (lower(tag) like '%intang%' or lower(tag) like '%goodwill%')
+			order by stmt, tag
+		) as lookup_ref
+;
+
+
+
+
+
+/******************************************************************************
+* 
+* reference.ticker_cik_sic_ind
+* 
+* DESCRIPTION: 
 * Create table for ticker/cik reference.
 * The data for this table is from the "cik_ticker_fndmntl_univ.xlsx" file, 
 * which in turn takes data returned from the "?????" query
@@ -73,15 +147,20 @@ delimiter ',' csv header;
 
 /******************************************************************************
 * 
-* DESCRIPTION: reference.universe_time_series_vw
-* Create view for monthly series for stocks in universe
+* reference.universe_time_series_vw
+* 
+* DESCRIPTION: 
+* Create view returning monthly series for stocks in universe
+* 
+* Universe defined on size (assets & equity) and availability date
+* from 
 * 
 * ERRORS: 
 *
 * 
 ******************************************************************************/
 
-select * from reference.universe_time_series_vw
+select * from reference.universe_time_series_vw where ticker = 'A' 
 
 create or replace view reference.universe_time_series_vw as 
 
@@ -115,7 +194,7 @@ from
 where 
 	extract(year from months.month_end) = fund_univ.valid_year
 	and (	(combined_rank <= 900 and fin_nonfin = 'non_financial'	)
-		or 	(combined_rank <= 100  and fin_nonfin = 'financial')	)
+		 or (combined_rank <= 100 and fin_nonfin = 'financial')	)
 	and months.month_end between ipo_date and delist_date
 order by 
 	cik, month_end

@@ -1,6 +1,8 @@
 /******************************************************************************
 * 
-* DESCRIPTION: alpha_vantage.ticker_excl
+* alpha_vantage.ticker_excl
+* 
+* DESCRIPTION: 
 * Make table for stocks to exclude from price download script
 * Updated from script in "alphavantage_import.py"
 * 
@@ -24,8 +26,10 @@ alter table alpha_vantage.ticker_excl owner to postgres;
 
 /******************************************************************************
 * 
-* DESCRIPTION: alpha_vantage.active_delisted
-* Make table for active and delisted stocks
+* alpha_vantage.active_delisted
+* 
+* DESCRIPTION: 
+* Make table for active and delisted stocks.
 * Updated from script in "alphavantage_import.py"
 * 
 * 
@@ -53,7 +57,9 @@ alter table alpha_vantage.active_delisted owner to postgres;
 
 /******************************************************************************
 * 
-* DESCRIPTION: alpha_vantage.tickers_to_update
+* alpha_vantage.tickers_to_update
+* 
+* DESCRIPTION: 
 * Create view returning list of tickers for which price data update is required
 * 
 * ERRORS
@@ -96,47 +102,118 @@ create or replace view alpha_vantage.tickers_to_update as
 
 /******************************************************************************
 * 
-* DESCRIPTION: alpha_vantage.returns_view
-* Create view to extract price data for porting to Python for technical indicator 
-* creation.  Usd by Python script "return_attributes.py"
-*  
-* ERRORS
-* To be amended to take account of multiple records for same day,
-* use distinct on()
+* alpha_vantage.daily_price_ts_view
 * 
-* Change join from SP500 table to innerjoin on "reference.universe_time_series_vw"
+* DESCRIPTION:
+* Create view to extract price data for porting to Python for technical indicator 
+* creation.  
+* 
+* Used by Python script "return_attributes.py"
+*  
 *  
 ******************************************************************************/
 
-select * from alpha_vantage.returns_view where symbol = 'A'
+select * from alpha_vantage.daily_price_ts_view where sector = '7'
 
-create or replace view alpha_vantage.returns_view as 
+create or replace view alpha_vantage.daily_price_ts_view as 
 
-	select 
-	sd.symbol,
-	sp5.gics_sector,
-	sd."timestamp",
-	sd.close,
-	sd.adjusted_close,
-	sd.volume,
-	sp.sp500
-	from alpha_vantage.shareprices_daily sd
-	join alpha_vantage.sp_500 sp5 
-	on sd.symbol = sp5.symbol
-	left join 
-		(
-			select 
-			"timestamp",
-		    adjusted_close as sp500
-		    from alpha_vantage.shareprices_daily
-		    where symbol = 'GSPC'
-	    ) sp 
-	on sd."timestamp" = sp."timestamp"
-	where sd."timestamp" > '2018-01-01'::date
-	order by 
-	sd.symbol, 
-	sd."timestamp", 
-	sp5.gics_sector
+with prices as 
+	(
+		select 
+		"timestamp"
+		,symbol
+		,close
+		,adjusted_close
+		,volume
+		from 
+			(
+				select 
+				sd.* 
+				,row_number() over (partition by "timestamp", symbol order by capture_date desc) as row_num
+				from alpha_vantage.shareprices_daily sd 
+				where 1 = 1 --symbol in ('AKRX','CMA','A','AAPL','C')
+				and "timestamp" > '2018-01-01'
+				--order by symbol, "timestamp" desc, capture_date desc
+			) t1
+		where row_num = 1
+		and symbol != 'GSPC'
+		--order by 2 asc, 1 desc
+	)
+	
+,sp_500 as 
+	(
+		select 
+		"timestamp",
+	    adjusted_close as sp500
+	    from alpha_vantage.shareprices_daily
+	    where symbol = 'GSPC'
+	    and "timestamp" > '2018-01-01'
+    )
+
+,universe as 
+	(
+		select * from reference.universe_time_series_vw where month_end > '2018-01-01'
+	)
+	
+,ind_ref as 
+	(
+		select
+		ind.ticker 
+		,lk.lookup_val4 as sector
+		from reference.ticker_cik_sic_ind ind
+		left join reference.lookup lk
+		on ind.simfin_industry_id = lk.lookup_ref::int
+		and lk.lookup_table = 'simfin_industries' 
+	)
+
+select
+	prices."timestamp"
+	,prices.symbol
+	,ind_ref.sector
+	,prices."close"
+	,prices.adjusted_close
+	,prices.volume
+	,sp_500.sp500
+from 
+	prices
+	inner join universe
+	on prices.symbol = universe.ticker
+	and prices."timestamp" between date_trunc('month', universe.month_end)::date and universe.month_end
+	left join sp_500
+	on prices."timestamp" = sp_500."timestamp"
+	left join ind_ref
+	on universe.ticker = ind_ref.ticker
+	order by 1,2
 ;
+	
 
+	
+	
+/******************************************************************************
+* 
+* alpha_vantage.price_duplicates
+* 
+* DESCRIPTION:
+* Return stocks with data that has been downloaded more than once
+* 
+*  
+******************************************************************************/
 
+select 
+distinct symbol 
+from 
+	(
+		select 
+		symbol
+		,"timestamp"
+		,count(*) as record_count
+		,max(adjusted_close)
+		,min(adjusted_close) 
+		from alpha_vantage.shareprices_daily 
+		where 1 = 1 --"timestamp" > '2020-06-30' 
+		group by 1,2 
+		having count(*) > 1
+		and max(adjusted_close) = min(adjusted_close)
+	) t1
+
+	

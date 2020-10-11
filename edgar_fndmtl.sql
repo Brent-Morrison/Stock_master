@@ -8,6 +8,7 @@
 * https://www.sec.gov/edgar/searchedgar/accessing-edgar-data.htm
 * 
 * ISSUES:
+* Change "start_date" to reference end of quarter implied by "sec_qtr" attribute
 * 
 * 0001459417-20-000003 - '2U, INC.' 
 * - Cash is doubled due to mapping of both tags detailed below.
@@ -335,7 +336,9 @@ insert into edgar.edgar_fndmntl_all_tb select * from edgar.edgar_fndmntl_all_vw;
 
 /******************************************************************************
 * 
-* DESCRIPTION: edgar_fndmntl_fltr_fn
+* edgar_fndmntl_fltr_fn
+* 
+* DESCRIPTION: 
 * Rank and filter for top n stocks by assets and equity
 * 
 * ERRORS
