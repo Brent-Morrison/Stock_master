@@ -36,7 +36,6 @@
 * Exclude REAL ESTATE INVESTMENT TRUSTS 6798??
 * 
 ******************************************************************************/
-drop view edgar.edgar_fndmntl_all_vw;
 
 create or replace view edgar.edgar_fndmntl_all_vw as 
 
@@ -332,6 +331,8 @@ alter table edgar.edgar_fndmntl_all_tb owner to postgres;
 
 insert into edgar.edgar_fndmntl_all_tb select * from edgar.edgar_fndmntl_all_vw;
 
+select * from edgar.edgar_fndmntl_all_tb where cik = 320193;
+
 
 
 /******************************************************************************
@@ -345,6 +346,11 @@ insert into edgar.edgar_fndmntl_all_tb select * from edgar.edgar_fndmntl_all_vw;
 * none
 * 
 ******************************************************************************/
+
+-- Test	
+select * from edgar_fndmntl_fltr_fn(nonfin_cutoff => 5, fin_cutoff => 5, qrtr => '%q1')
+select * from edgar_fndmntl_fltr_fn(nonfin_cutoff => 5, fin_cutoff => 5, qrtr => null)
+select * from edgar_fndmntl_fltr_fn(5, 5, null, false)
 
 create or replace function edgar_fndmntl_fltr_fn 
 	(
@@ -441,7 +447,134 @@ create or replace function edgar_fndmntl_fltr_fn
 	;
 	end; $$
 
--- Test	
-select * from edgar_fndmntl_fltr_fn(nonfin_cutoff => 5, fin_cutoff => 5, qrtr => '%q1')
-select * from edgar_fndmntl_fltr_fn(nonfin_cutoff => 5, fin_cutoff => 5, qrtr => null)
-select * from edgar_fndmntl_fltr_fn(5, 5, null, false)
+
+	
+	
+
+/******************************************************************************
+* 
+* qrtly_fndmntl_ts_vw
+* 
+* DESCRIPTION: 
+* Join simfin and edgar data to export to R / python.
+* Will be used to seed "access_layer.fundamental_universe" table.
+* 
+* ERRORS:
+* TO DO:
+* - Universe CTE, rolling calc. burn in period required
+* 
+******************************************************************************/
+	
+--Test
+select * from edgar.qrtly_fndmntl_ts_vw
+	
+create or replace view edgar.qrtly_fndmntl_ts_vw as 
+
+with fndmntl as 
+	(
+		-- Simfin fundamental data
+		select 
+			ticker
+			,fiscal_year
+			,fiscal_period
+			,'simfin' as src
+			,report_date
+			,publish_date
+			,shares_basic
+			,cash_equiv_st_invest
+			,total_cur_assets
+			,intang_asset
+			,total_noncur_assets
+			,total_assets
+			,st_debt
+			,total_cur_liab
+			,lt_debt
+			,total_noncur_liab
+			,total_liab
+			,total_equity
+			,net_income as net_income_qtly
+		
+		from 
+			simfin.smfn_fndmntl_vw
+		where
+			publish_date < '2016-12-31'
+			
+		union all
+		
+		-- Edgar fundamental data
+		select 
+			tik.ticker as ticker  -- JOIN TICKER FOR THIS
+			,fy as fiscal_year
+			,concat('Q', case when qtr = 'Y' then '4' else qtr end) as fiscal_period
+			,'edgar' as src
+			,ddate as report_date
+			,filed as publish_date
+			,greatest(shares_os,shares_os_cso) as shares_basic
+			,cash_equiv_st_invest
+			,total_cur_assets
+			,intang_asset
+			,total_noncur_assets
+			,total_assets
+			,st_debt
+			,total_cur_liab
+			,lt_debt
+			,total_noncur_liab
+			,total_liab
+			,total_equity
+			,net_income_qtly
+		
+		from
+			edgar.edgar_fndmntl_all_tb fnd
+			left join reference.ticker_cik_sic_ind tik
+			on fnd.cik = tik.cik 
+	)
+	
+,ind_ref as 
+	(
+		select
+		ind.ticker 
+		,lk.lookup_val4 as sector
+		,case 
+			when ind.sic::int between 6000 and 6500 then 'financial' 
+			else 'non_financial' end as fin_nonfin
+		from reference.ticker_cik_sic_ind ind
+		left join reference.lookup lk
+		on ind.simfin_industry_id = lk.lookup_ref::int
+		and lk.lookup_table = 'simfin_industries' 
+	)	
+	
+,universe as 
+	(	-- Need to add a preceding year to the CTE to allow for rolling calc. burn in period
+		select 
+			t.ticker 
+			,t.sic
+			,i.sector
+			,t.ipo_date as start_date
+			,t.delist_date as end_date
+			,make_date(f.valid_year,1,1) as start_year 
+			,make_date(f.valid_year,12,31) as end_year
+		from 
+			reference.fundamental_universe f
+			left join reference.ticker_cik_sic_ind t
+			on f.cik = t.cik
+			left join ind_ref i
+			on t.ticker = i.ticker
+		where 
+			(i.fin_nonfin = 'financial' and f.combined_rank < 100) or
+			(i.fin_nonfin != 'financial' and f.combined_rank < 900) 
+		order by
+			t.ticker 
+			,f.valid_year
+	)
+	
+select
+	(date_trunc('quarter', publish_date) + interval '4 month - 1 day')::date as date_available
+	,fndmntl.*
+from 
+	fndmntl
+	inner join universe
+	on fndmntl.ticker = universe.ticker
+	and fndmntl.publish_date between universe.start_date and universe.end_date -- minus 1 as we need a burn in period for 1 yr returns
+	and fndmntl.publish_date between universe.start_year and universe.end_year
+	order by 2,6 
+;

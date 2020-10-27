@@ -34,7 +34,7 @@ meta = MetaData(engine)
 df_raw = pd.read_sql(
     sql = """
             select * 
-            from alpha_vantage.daily_price_ts_view 
+            from alpha_vantage.daily_price_ts_vw 
             where symbol in ('AKRX','CMA','A','AAPL','C')
         """,
     con=conn,
@@ -111,6 +111,7 @@ dfm['day'] = 1
 dfm['date'] = pd.to_datetime(dfm[['year','month','day']]).dt.to_period('M').dt.to_timestamp('M')
 dfm.set_index('date', inplace=True)
 dfm.drop(['day'], axis=1, inplace=True)
+dfm.rename(columns={'rtn_log_1d': 'rtn_log_1m'})
 dfm['smax_20d'] = dfm.smax_20d / dfm.vol_ari_20d
 dfm['smax_20d_dcl'] = dfm.groupby('month').smax_20d.transform(lambda x: pd.qcut(x, 10, labels=range(10,0,-1)))
 dfm['cor_rtn_1d_mkt_120d_dcl'] = dfm.groupby('month').cor_rtn_1d_mkt_120d.transform(lambda x: pd.qcut(x, 10, labels=range(10,0,-1)))

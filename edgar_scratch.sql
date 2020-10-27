@@ -42,11 +42,6 @@ select * from edgar.edgar_cik_ticker_view
 
 
 
-
-
-
-
-
 /******************************************************************************
 * 
 * Range of price data by ticker
@@ -293,171 +288,25 @@ sf_sic.max_sic
 ,tickers desc
 
 
-	
-
-alter table alpha_vantage.ticker_excl add column status text;
-
-update alpha_vantage.ticker_excl set status = 'data_up_to_date' where status is null;
-
-select * from alpha_vantage.ticker_excl order by ticker;
-
-select * from pg_catalog.pg_locks 
-
--- ATW isa new ticker??
--- CBG is now CBRE, need to account for changed tickers
-
 
 --------------------------------------------------	
 
--- actual data industry map
-with tickers as (
-	select 
-	distinct ticker 
-	from (
-		select ticker from simfin.us_companies
-		union all
-		select symbol as ticker from alpha_vantage.sp_500
-		union all
-		select ticker from alpha_vantage.sp_1000
-		union all
-		select ticker from zacks.zacks_gt_750
-		union all
-		select ticker from edgar.cik_ticker_master
-		) t1
-	)
 
-,sf_ref as (
-	select ticker, industry_id as sf_ind_id from simfin.us_companies
-	)
-
-,sf_ind as (
-	select * 
-	from edgar.lookup 
-	where lookup_table = 'simfin_industries'
-	)
-
-,sp_ind as (
-	-- dupes in here
-	select symbol as ticker, gics_sector, gics_industry from alpha_vantage.sp_500
-	union all
-	select ticker, gics_sector, gics_industry from alpha_vantage.sp_1000
-	)
-
-,zacks_ind as (
-	select ticker, zacks_sector, zacks_industry
-	from zacks.zacks_gt_750
-	)
-
-,edgar_ref as (
-	select distinct ticker, sic from edgar.cik_ticker_master
-	)
+where 
+	symbol in ('A','AAL','AAN','AAWW','ABM','ACCO','ACM','AAPL','ADBE','ADI','ADT','AKAM','AMD') 
+	and date_stamp > '2013-12-31'
+order by 1,2
 	
-,edgar_ind as (
-	select * 
-	from edgar.lookup 
-	where lookup_table = 'sic_mapping'
-	)
-
-,hrchy as (
-	select 
-	tickers.ticker
-	,sf_ind.lookup_val1 as sf_sector
-	,sf_ind.lookup_val3 as sf_industry
-	,sp_ind.gics_sector
-	,replace(sp_ind.gics_industry,'&', 'and') as gics_industry
-	,zacks_ind.zacks_sector
-	,zacks_ind.zacks_industry
-	,edgar_ref.sic
-	,edgar_ind.lookup_val3 as edgar_sector
-	,edgar_ind.lookup_val4 as edgar_industry
-	from tickers
-	left join sf_ref
-	on tickers.ticker = sf_ref.ticker
-	left join sf_ind
-	on sf_ref.sf_ind_id = sf_ind.lookup_ref::int
-	left join sp_ind
-	on tickers.ticker = sp_ind.ticker
-	left join zacks_ind
-	on tickers.ticker = zacks_ind.ticker
-	left join edgar_ref
-	on tickers.ticker = edgar_ref.ticker
-	left join edgar_ind
-	on edgar_ref.sic = edgar_ind.lookup_ref::int
-	)
 	
 select 
-gics_sector
-,gics_industry
-,sf_sector
-,sf_industry
-,zacks_sector
-,zacks_industry
-,edgar_industry
-,count(ticker) as records
-from hrchy
-group by 1,2,3,4,5,6,7
-order by 1,2,3,4,5,6,7
-
--- edgar_raw1
-select 
-ct.cik_str
-,ct.ticker
-,ct.title as name 
-from edgar.company_tickers ct
-inner join (select distinct cik from edgar.sub where afs = '1-LAF') sb
-on ct.cik_str = sb.cik
-
--- edgar_raw2
-with t1 as (
-	select 
-	distinct 
-	cik
-	,upper(substring(instance, '[A-Za-z]{1,5}')) as ticker
-	from edgar.sub
-	where form in ('10-K', '10-Q')
-	and afs = '1-LAF'
-	and length(substring(instance, '[A-Za-z]{1,5}')) > 1
-	and upper(substring(instance, '[A-Za-z]{1,5}')) != 'FY'
-	and upper(substring(instance, '[A-Za-z]{1,5}')) != 'FORM'
-	except 
-	select 
-	cik_str
-	,ticker
-	from edgar.company_tickers
-	)
-
-,t2 as (
-	select 
-	distinct on (cik) cik
-	,upper(substring(instance, '[A-Za-z]{1,5}')) as ticker
-	,translate(name, '/,.,,', '') as name 
-	from edgar.sub
-	where form in ('10-K', '10-Q')
-	and afs = '1-LAF'
-	order by cik, period 
-	)
-		
-select 
-t1.cik
-,t1.ticker
-,t2.name
-from t1
-left join t2
-on t1.cik = t2.cik
-
-select * from edgar.sub where cik in (23082,1688568) --(1001039, 1744489, 1363829)
-select * from edgar.company_tickers where cik_str in (1001039, 1744489)  -- ORIGINAL NOT IN 'company_tickers'
-select ticker, industry_id from simfin.us_companies
-select * from edgar.sub where adsh = '0001564590-19-008308'
-select * from edgar.edgar_fndmntl_t1 where total_assets = 13560.6  --adsh = '0001564590-19-008308' --
-select * from alpha_vantage.active_delisted where symbol = 'ACT'
-select * from edgar.company_tickers where cik_str = 1067983  --ticker like '%%' --
-select * from edgar.company_tickers where ticker like '%BRK%'
-
-select * from edgar.pre where adsh = '0001437749-12-008459'
-
-
-
-
-
-
+(date_trunc('month', last_trade_date) + interval '1 month - 1 day')::date as month_end
+,last_trade_date
+from 
+	(
+		select 
+		max("timestamp") as last_trade_date
+		from alpha_vantage.shareprices_daily
+		where symbol = 'GSPC'
+		group by date_trunc('month', "timestamp") 
+		order by max("timestamp") 
+	) t1

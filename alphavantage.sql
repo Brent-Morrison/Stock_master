@@ -106,16 +106,27 @@ create or replace view alpha_vantage.tickers_to_update as
 * 
 * DESCRIPTION:
 * Create view to extract price data for porting to Python for technical indicator 
-* creation.  
+* creation. 
 * 
 * Used by Python script "return_attributes.py"
-*  
+* 
+* TO DO:
+* - Universe CTE, rolling calc. burn in period required
+* 
 *  
 ******************************************************************************/
 
-select * from alpha_vantage.daily_price_ts_view where sector = '7'
+-- Test
+select * 
+from alpha_vantage.daily_price_ts_vw 
+where symbol in ('A','AAL')--,'AAN','AAWW','ABM','ACCO','ACM','AAPL','ADBE','ADI','ADT','AKAM','AMD') 
+and date_stamp > '2013-01-01'
 
-create or replace view alpha_vantage.daily_price_ts_view as 
+
+
+create index shareprices_daily_idx on alpha_vantage.shareprices_daily (symbol, "timestamp")
+
+create or replace view alpha_vantage.daily_price_ts_vw as 
 
 with prices as 
 	(
@@ -131,15 +142,12 @@ with prices as
 				sd.* 
 				,row_number() over (partition by "timestamp", symbol order by capture_date desc) as row_num
 				from alpha_vantage.shareprices_daily sd 
-				where 1 = 1 --symbol in ('AKRX','CMA','A','AAPL','C')
-				and "timestamp" > '2018-01-01'
-				--order by symbol, "timestamp" desc, capture_date desc
+				where 1 = 1 --"timestamp" > '2018-01-01'
 			) t1
 		where row_num = 1
 		and symbol != 'GSPC'
-		--order by 2 asc, 1 desc
 	)
-	
+
 ,sp_500 as 
 	(
 		select 
@@ -147,29 +155,51 @@ with prices as
 	    adjusted_close as sp500
 	    from alpha_vantage.shareprices_daily
 	    where symbol = 'GSPC'
-	    and "timestamp" > '2018-01-01'
+	    --and "timestamp" > '2018-01-01'
     )
 
-,universe as 
-	(
-		select * from reference.universe_time_series_vw where month_end > '2018-01-01'
-	)
-	
 ,ind_ref as 
 	(
 		select
 		ind.ticker 
 		,lk.lookup_val4 as sector
+		,case 
+			when ind.sic::int between 6000 and 6500 then 'financial' 
+			else 'non_financial' end as fin_nonfin
 		from reference.ticker_cik_sic_ind ind
 		left join reference.lookup lk
 		on ind.simfin_industry_id = lk.lookup_ref::int
 		and lk.lookup_table = 'simfin_industries' 
+	)	
+	
+,universe as 
+	(	-- Need to add a preceding year to the CTE to allow for rolling calc. burn in period
+		select 
+			t.ticker 
+			,t.sic
+			,i.sector
+			,t.ipo_date as start_date
+			,t.delist_date as end_date
+			,make_date(f.valid_year,1,1) as start_year 
+			,make_date(f.valid_year,12,31) as end_year
+		from 
+			reference.fundamental_universe f
+			left join reference.ticker_cik_sic_ind t
+			on f.cik = t.cik
+			left join ind_ref i
+			on t.ticker = i.ticker
+		where 
+			(i.fin_nonfin = 'financial' and f.combined_rank < 100) or
+			(i.fin_nonfin != 'financial' and f.combined_rank < 900) 
+		order by
+			t.ticker 
+			,f.valid_year
 	)
-
+	
 select
-	prices."timestamp"
-	,prices.symbol
-	,ind_ref.sector
+	prices.symbol
+	,universe.sector
+	,prices."timestamp" as date_stamp 
 	,prices."close"
 	,prices.adjusted_close
 	,prices.volume
@@ -178,14 +208,60 @@ from
 	prices
 	inner join universe
 	on prices.symbol = universe.ticker
-	and prices."timestamp" between date_trunc('month', universe.month_end)::date and universe.month_end
+	and prices."timestamp" between universe.start_date and universe.end_date
+	and prices."timestamp" between universe.start_year and universe.end_year
 	left join sp_500
 	on prices."timestamp" = sp_500."timestamp"
-	left join ind_ref
-	on universe.ticker = ind_ref.ticker
+	order by 1,3 
+;
+
+
+
+
+
+/******************************************************************************
+* 
+* alpha_vantage.monthly_price_ts_view
+* 
+* DESCRIPTION:
+* Create view to extract last monthly price data for porting to Python / R for 
+* fundamental valuation models.
+* 
+* Used by R script "?????.r"
+* 
+* TO DO:
+* - Universe CTE, rolling calc. burn in period required
+* 
+*  
+******************************************************************************/
+
+-- Test
+select * from alpha_vantage.monthly_price_ts_vw where symbol = 'A'
+
+create or replace view alpha_vantage.monthly_price_ts_vw as 
+
+	select 
+		symbol
+		,date_stamp 
+		,"close" 
+		,adjusted_close 
+		,volume
+	from 
+		alpha_vantage.daily_price_ts_vw dpts
+		inner join 
+			(
+				select 
+				max("timestamp") as last_trade_date
+				from alpha_vantage.shareprices_daily
+				where symbol = 'GSPC'
+				group by date_trunc('month', "timestamp") 
+				order by max("timestamp") 	
+			) ltd
+		on dpts.date_stamp = ltd.last_trade_date
 	order by 1,2
 ;
-	
+
+
 
 	
 	
@@ -217,3 +293,54 @@ from
 	) t1
 
 	
+
+	
+
+
+	
+	
+/******************************************************************************
+* 
+* SCRATCH
+*  
+******************************************************************************/
+select * from (
+
+with ind_ref as 
+	(
+		select
+		ind.ticker 
+		,lk.lookup_val4 as sector
+		,case 
+			when ind.sic::int between 6000 and 6500 then 'financial' 
+			else 'non_financial' end as fin_nonfin
+		from reference.ticker_cik_sic_ind ind
+		left join reference.lookup lk
+		on ind.simfin_industry_id = lk.lookup_ref::int
+		and lk.lookup_table = 'simfin_industries' 
+	)	
+	
+select 
+	t.ticker 
+	,t.sic
+	,i.sector
+	,t.ipo_date as start_date
+	,t.delist_date as end_date
+	-- minus 1 as we need a burn in period for 1 yr returns
+	,make_date(f.valid_year-1,1,1) as start_year 
+	,make_date(f.valid_year,12,31) as end_year
+	,i.fin_nonfin  --remove
+from 
+	reference.fundamental_universe f
+	left join reference.ticker_cik_sic_ind t
+	on f.cik = t.cik
+	left join ind_ref i
+	on t.ticker = i.ticker
+where 
+		(i.fin_nonfin = 'financial' and f.combined_rank < 10)
+	or 	(i.fin_nonfin != 'financial' and f.combined_rank < 900) -- CHECK
+order by
+	f.valid_year
+	,t.ticker
+) t1 
+where sector = '5' and end_year = '2018-12-31'

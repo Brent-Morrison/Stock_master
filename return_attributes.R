@@ -1,19 +1,25 @@
-##############################################################################
+
+#==============================================================================
 #
 # Script to extract data from postgres database and enrich stock return
 # data with various attributes
 #
-##############################################################################
+#==============================================================================
 
-# Installation
+# RollingWindow installation
 
 # https://github.com/andrewuhl/RollingWindow
-
 # library("devtools")
 # install_github("andrewuhl/RollingWindow")
+
 library(RollingWindow)
 library(slider)
 library(dplyr)
+library(tidyr)
+library(forcats)
+library(ggplot2)
+library(ggridges)
+library(lubridate)
 library(DBI)
 library(RPostgres)
 
@@ -27,43 +33,142 @@ con <- dbConnect(
   password  = rstudioapi::askForPassword("Password")
 )
 
+# Parameter and query string
+date_param <- '2017-01-01'
+sql <- "select * from alpha_vantage.daily_price_ts_vw where date_stamp > ?date_param"
+sql <- sqlInterpolate(conn = con, sql = sql, date_param = date_param)
+
 # Read data
 qry <- dbSendQuery(
   conn = con, 
-  "
-    select * 
-    from alpha_vantage.daily_price_ts_view 
-    where symbol in ('AKRX','CMA','A','AAPL','C')
-  "
-)
+  statement = sql
+  ) 
 df_raw <- dbFetch(qry)
 
 
-########################
-### Daily stock data ###
-########################
 
-df <- df_raw %>% 
+#==============================================================================
+# Daily stock data 
+#==============================================================================
+
+daily <- df_raw %>% 
   group_by(symbol) %>% 
+  # Filter out symbols that do not have enough records
+  filter(n() > 500) %>% 
   mutate(
     sector                  = as.numeric(sector)
     ,rtn_ari_1d             = (adjusted_close-lag(adjusted_close))/lag(adjusted_close)
     ,rtn_ari_1d_mkt         = (sp500 - lag(sp500))/lag(sp500)
     ,rtn_log_1d             = log(adjusted_close) - lag(log(adjusted_close))
-    ,vol_ari_20d            = RollingStd(rtn_ari_1d, window = 20, na_method = 'ignore') * sqrt(252)
-    ,vol_ari_60d            = RollingStd(rtn_ari_1d, window = 60, na_method = 'ignore') * sqrt(252)
-    ,vol_ari_120d           = RollingStd(rtn_ari_1d, window = 120, na_method = 'ignore')
-    ,skew_ari_120d          = RollingSkew(rtn_ari_1d, window = 120, na_method = 'ignore')
-    ,kurt_ari_120d          = RollingKurt(rtn_ari_1d, window = 120, na_method = 'ignore')
+    ,vol_ari_20d            = RollingStd(rtn_ari_1d, window = 20, na_method = 'window') * sqrt(252)
+    ,vol_ari_60d            = RollingStd(rtn_ari_1d, window = 60, na_method = 'window') * sqrt(252)
+    ,vol_ari_120d           = RollingStd(rtn_ari_1d, window = 120, na_method = 'window')
+    ,skew_ari_120d          = RollingSkew(rtn_ari_1d, window = 120, na_method = 'window')
+    ,kurt_ari_120d          = RollingKurt(rtn_ari_1d, window = 120, na_method = 'window')
     ,amihud                 = abs(rtn_ari_1d) / (volume * adjusted_close / 10e7)
-    ,amihud_3m              = RollingMean(amihud, window = 60, na_method = 'ignore')
-    ,amihud_vol_3m          = RollingStd(amihud, window = 60, na_method = 'ignore') * sqrt(252)
-    ,smax                   = slide_dbl(rtn_ari_1d, ~mean(tail(sort(.x), 5)), .before = 20) / vol_ari_20d
-    ,cor_rtn_1d_mkt_120d    = RollingCorr(rtn_ari_1d, rtn_ari_1d_mkt, window = 120, na_method = 'ignore')
-    ,beta_rtn_1d_mkt_120d   = RollingBeta(rtn_ari_1d, rtn_ari_1d_mkt, window = 120, na_method = 'ignore')
+    ,amihud_60d             = RollingMean(amihud, window = 60, na_method = 'window')
+    ,amihud_vol_60d         = RollingStd(amihud, window = 60, na_method = 'window') * sqrt(252)
+    ,smax_20d               = slide_dbl(rtn_ari_1d, ~mean(tail(sort(.x), 5)), .before = 20) / vol_ari_20d
+    ,cor_rtn_1d_mkt_120d    = RollingCorr(rtn_ari_1d, rtn_ari_1d_mkt, window = 120, na_method = 'window')
+    ,beta_rtn_1d_mkt_120d   = RollingBeta(rtn_ari_1d, rtn_ari_1d_mkt, window = 120, na_method = 'window')
   )
 
+monthly <- daily %>% 
+  group_by(symbol, date_stamp = floor_date(date_stamp, "month")) %>% 
+  mutate(date_stamp = ceiling_date(date_stamp, unit = "month") - 1) %>% 
+  summarise(
+    close                   = last(close),
+    adjusted_close          = last(adjusted_close),
+    volume                  = mean(volume ),
+    rtn_log_1m              = sum(rtn_log_1d),
+    amihud_1m               = mean(amihud),
+    amihud_60d              = last(amihud_60d),
+    amihud_vol_60d          = last(amihud_vol_60d),
+    vol_ari_20d             = last(vol_ari_20d),
+    vol_ari_60d             = last(vol_ari_60d),
+    vol_ari_120d            = last(vol_ari_120d),
+    skew_ari_120d           = last(skew_ari_120d),
+    kurt_ari_120d           = last(kurt_ari_120d),
+    smax_20d                = last(smax_20d),
+    cor_rtn_1d_mkt_120d     = last(cor_rtn_1d_mkt_120d),
+    beta_rtn_1d_mkt_120d    = last(beta_rtn_1d_mkt_120d)
+    ) %>% ungroup()
 
+monthly <- monthly %>% 
+  group_by(symbol) %>% 
+  mutate(
+    rtn_ari_1m              = (adjusted_close-lag(adjusted_close))/lag(adjusted_close),
+    rtn_ari_3m              = (adjusted_close-lag(adjusted_close, 3))/lag(adjusted_close, 3),
+    rtn_ari_6m              = (adjusted_close-lag(adjusted_close, 6))/lag(adjusted_close, 6),
+    rtn_ari_12m             = (adjusted_close-lag(adjusted_close, 12))/lag(adjusted_close, 12),
+    fwd_rtn_1m              = lead(rtn_log_1m)
+    ) %>% ungroup()
+
+monthly <- monthly %>% 
+  group_by(date_stamp) %>% 
+  mutate(
+    rtn_ari_1m_dcl           = ntile(rtn_ari_1m, 10),
+    rtn_ari_3m_dcl           = ntile(rtn_ari_3m, 10),
+    rtn_ari_6m_dcl           = ntile(rtn_ari_6m, 10),
+    rtn_ari_12m_dcl          = ntile(rtn_ari_12m, 10),
+    amihud_1m_dcl            = ntile(amihud_1m, 10),
+    amihud_60d_dcl           = ntile(amihud_60d, 10),
+    amihud_vol_60d_dcl       = ntile(amihud_vol_60d, 10),
+    vol_ari_20d_dcl          = ntile(vol_ari_20d, 10),
+    vol_ari_60d_dcl          = ntile(vol_ari_60d, 10),
+    vol_ari_120d_dcl         = ntile(vol_ari_120d, 10),
+    skew_ari_120d_dcl        = ntile(skew_ari_120d, 10),
+    kurt_ari_120d_dcl        = ntile(kurt_ari_120d, 10), 
+    smax_20d_dcl             = ntile(smax_20d, 10),
+    cor_rtn_1d_mkt_120d_dcl  = ntile(cor_rtn_1d_mkt_120d, 10),    
+    beta_rtn_1d_mkt_120d_dcl = ntile(beta_rtn_1d_mkt_120d, 10)  
+  ) %>% ungroup()
+
+# Convert to dataframe for upload to database
+monthly <- monthly %>% drop_na() %>% as.data.frame(monthly)
+
+# Write to postgres database
+dbWriteTable(
+  conn = con, 
+  name = SQL('access_layer.return_attributes'), 
+  value = monthly, 
+  row.names = FALSE, 
+  append = TRUE
+  )
 
 # Disconnect
 dbDisconnect(con)
+
+
+
+
+
+
+
+# Test
+dfm_smax <- dfm %>% drop_na() %>% 
+  group_by(rtn_ari_12m_dcl) %>% 
+  summarise(avg = mean(rtn_ari_12m), fwd_rtn_1m = mean(fwd_rtn_1m, na.rm = TRUE))
+
+# ggridges
+# https://cmdlinetips.com/2018/03/how-to-plot-ridgeline-plots-in-r/
+dfm %>% drop_na() %>% 
+  select(date_stamp, kurt_ari_120d_dcl, fwd_rtn_1m) %>% 
+  filter(kurt_ari_120d_dcl %in% c(1, 10)) %>% 
+  mutate(kurt_ari_120d_dcl = as.factor(kurt_ari_120d_dcl),
+         date_stamp   = fct_rev(as.factor(date_stamp))) %>% 
+  ggplot(aes(
+    x           = fwd_rtn_1m, 
+    y           = date_stamp, 
+    fill        = kurt_ari_120d_dcl
+  )) + 
+  geom_density_ridges(
+    alpha = .6, 
+    color = 'white', 
+    from = -.6, to = .6, 
+    panel_scaling = FALSE
+  )
+
+
+# Scratch
+tge <- df_raw %>% filter(symbol == 'TGE')
