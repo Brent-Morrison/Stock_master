@@ -1,7 +1,9 @@
 
 /******************************************************************************
 * 
-* DESCRIPTION: edgar_fndmntl_all_vw
+* edgar.edgar_fndmntl_all_vw
+* 
+* DESCRIPTION: 
 * Create view to extract fundamantal data from the edgar tables
 * 
 * DATA FORMAT: 
@@ -32,6 +34,9 @@
 * 0000074145-17-000011 - OKLAHOMA GAS & ELECTRIC CO, no cash
 * 
 * 0001764925-19-000174 - SLACK TECHNOLOGIES, INC., no shares OS
+* 
+* 0001615774-19-006777 - GARMIN LTD, shares o/s in millions, select * from edgar.num where adsh = '0001615774-19-006777'
+* 0001666359-17-000033 - ARROW ELECTRONICS INC, shares o/s quoted in 1000's instead of whole number per all other filings
 * 
 * Exclude REAL ESTATE INVESTMENT TRUSTS 6798??
 * 
@@ -81,15 +86,16 @@ with t1 as
 		-- refer to notes in edgar_structure.xlxs
 		and sb.afs = '1-LAF'
 		-- FILTERS FOR INVESTIGATION
-		--and nm.adsh in ('0001418819-18-000017','0001104659-19-043831','0001493152-19-012689','0000101829-17-000007')
-		--and sb.name = 'HOME DEPOT INC'--'2U, INC.'--'EATON CORP PLC' --'BB&T CORP'
+		--and nm.adsh = '0001615774-17-006096'
+		--and sb.name in ('APPLE INC','ARROW ELECTRONICS INC','PG&E CORP')
+		--or sb.cik in (1090872,1121788)
 	)
 
 ,t11 as 
 	(
 		select 
 		adsh as t11_adsh
-		,value/1000000 as l1_esco
+		,value/1000000 as l1_ecso
 		from edgar.num
 		where tag = 'EntityCommonStockSharesOutstanding' 
 		and coreg = 'NVS'
@@ -114,6 +120,7 @@ with t1 as
 		,sum(case when level = '1' and L1 = 'l' 		then amount else 0 end) 	as L1_l
 		,sum(case when level = '1' and L1 = 'le' 		then amount else 0 end) 	as L1_le
 		,sum(case when level = '1' and L1 = 'cso' 		then amount else 0 end) 	as L1_cso
+--		,sum(case when level = '1' and L1 = 'ecso' 		then amount else 0 end) 	as L1_ecso do not use, introduces latter date throwing partition filter in t4
 		,min(case when level = '1' and L1 = 'p' 		then amount else 0 end) 	as L1_p_cr
 		,max(case when level = '1' and L1 = 'p' 		then amount else 0 end) 	as L1_p_dr
 		,max(case when level = '2' and L2 = 'ca' 		then amount else 0 end) 	as L2_ca
@@ -136,7 +143,7 @@ with t1 as
 	(
 		select 
 		t2.*
-		,rank() over (partition by adsh order by ddate desc) as rnk
+		,rank() over (partition by adsh order by ddate desc) 						as rnk
 		,L1_a + L1_le 																as L1_bs_chk
 		,L1_a - L2_ca - L2_nca 														as L2_a_chk
 		,L1_l - L2_cl - L2_ncl 
@@ -164,7 +171,8 @@ with t1 as
 			when L2_cl != 0 and L2_ncl = 0 and l2_eq != 0 then l2_eq
 			else 0 end 																as total_equity
 		,case when L1_bs_chk = 0 then L1_le else 0 end 								as total_liab_equity
-		,L1_cso																		as shares_os_cso
+		,L1_cso																		as shares_cso
+--		,L1_ecso																	as shares_ecso
 		,case 
 			when qtrs = 0 then 'pit'
 			when qtrs::text = qtr or (qtrs::text = '4' and qtr = 'Y') then 'ytd_pl'
@@ -208,7 +216,7 @@ with t1 as
 			else 0
 			end 																	as total_noncur_liab	
 		,L1_p - case when bal_type = 'ytd_pl' and qtrs > 1 
-						then lag(L1_p) over (partition by stock, bal_type order by ddate) 
+						then lag(L1_p) over (partition by cik, bal_type order by ddate) 
 						else 0
 						end 														as net_income_qtly
 		from t4
@@ -264,14 +272,17 @@ with t1 as
 		,sum(total_liab) 															as total_liab
 		,sum(total_equity) 															as total_equity
 		,sum(net_income_qtly) 														as net_income_qtly
-		,sum(shares_os_cso)															as shares_os_cso
+		,round(sum(shares_cso),3)													as shares_cso
+--		,sum(shares_ecso)															as shares_ecso
 		from t6
 		group by 1,2,3,4,5,6,7,8,9,10,11,12
 	)
 
 select 
 t7.*
-,case when shares_os_cso = 0 then t11.l1_esco else shares_os_cso end			as shares_os
+,round(t11.l1_ecso,3)																as shares_ecso
+--,case when shares_os_cso = 0 then t11.l1_ecso else shares_os_cso end				as shares_os
+--,greatest(shares_os_cso, t11.l1_ecso )											as shares_os
 from t7
 left join t11
 on t7.adsh = t11.t11_adsh
@@ -314,11 +325,12 @@ create table edgar.edgar_fndmntl_all_tb
 		,total_liab				numeric
 		,total_equity			numeric
 		,net_income_qtly		numeric
-		,shares_os_cso			numeric
-		,shares_os				numeric
+		,shares_cso				numeric
+		,shares_ecso			numeric
 	);
 
 alter table edgar.edgar_fndmntl_all_tb owner to postgres;
+
 
 
 
@@ -331,7 +343,7 @@ alter table edgar.edgar_fndmntl_all_tb owner to postgres;
 
 insert into edgar.edgar_fndmntl_all_tb select * from edgar.edgar_fndmntl_all_vw;
 
-select * from edgar.edgar_fndmntl_all_tb where cik = 320193;
+select * from edgar.edgar_fndmntl_all_tb where cik in (320193,7536,1004980,1121788);
 
 
 
@@ -348,11 +360,12 @@ select * from edgar.edgar_fndmntl_all_tb where cik = 320193;
 ******************************************************************************/
 
 -- Test	
-select * from edgar_fndmntl_fltr_fn(nonfin_cutoff => 5, fin_cutoff => 5, qrtr => '%q1')
-select * from edgar_fndmntl_fltr_fn(nonfin_cutoff => 5, fin_cutoff => 5, qrtr => null)
-select * from edgar_fndmntl_fltr_fn(5, 5, null, false)
+select * from edgar.edgar_fndmntl_fltr_fn(nonfin_cutoff => 5, fin_cutoff => 5, qrtr => '%q1')
+select * from edgar.edgar_fndmntl_fltr_fn(nonfin_cutoff => 5, fin_cutoff => 5, qrtr => null)
+select * from edgar.edgar_fndmntl_fltr_fn(150, 950, null, true)
 
-create or replace function edgar_fndmntl_fltr_fn 
+-- Function
+create or replace function edgar.edgar_fndmntl_fltr_fn
 	(
   		fin_cutoff 		int 	default 100
   		,nonfin_cutoff 	int 	default 900
@@ -386,11 +399,12 @@ create or replace function edgar_fndmntl_fltr_fn
 		,total_liab				numeric
 		,total_equity			numeric
 		,net_income_qtly		numeric
-		,shares_os_cso			numeric
-		,shares_os				numeric
+		,shares_cso				numeric
+		,shares_ecso			numeric
 		,asset_rank				bigint
 		,equity_rank			bigint
 		,sum_rank				bigint
+		,shares_os				numeric
 		,combined_rank			bigint
 	)
 
@@ -419,6 +433,7 @@ create or replace function edgar_fndmntl_fltr_fn
 		,t3 as (
 			select 
 			t2.*
+			,t2.shares_cso + t2.shares_ecso														as shares_os
 			,rank() over (partition by t2.sec_qtr, t2.fin_nonfin order by t2.sum_rank asc) 		as combined_rank
 			from t2
 			)
@@ -480,19 +495,20 @@ with fndmntl as
 			,'simfin' as src
 			,report_date
 			,publish_date
-			,shares_basic
+			,shares_basic as shares_cso
+			,0 as shares_ecso
 			,cash_equiv_st_invest
 			,total_cur_assets
 			,intang_asset
 			,total_noncur_assets
 			,total_assets
-			,st_debt
-			,total_cur_liab
-			,lt_debt
-			,total_noncur_liab
-			,total_liab
-			,total_equity
-			,net_income as net_income_qtly
+			,-1 * st_debt as st_debt
+			,-1 * total_cur_liab as total_cur_liab
+			,-1 * lt_debt as lt_debt
+			,-1 * total_noncur_liab as total_noncur_liab
+			,-1 * total_liab as total_liab
+			,-1 * total_equity as total_equity
+			,-1 * net_income as net_income_qtly
 		
 		from 
 			simfin.smfn_fndmntl_vw
@@ -509,7 +525,8 @@ with fndmntl as
 			,'edgar' as src
 			,ddate as report_date
 			,filed as publish_date
-			,greatest(shares_os,shares_os_cso) as shares_basic
+			,shares_cso
+			,shares_ecso
 			,cash_equiv_st_invest
 			,total_cur_assets
 			,intang_asset
@@ -549,6 +566,7 @@ with fndmntl as
 			t.ticker 
 			,t.sic
 			,i.sector
+			,i.fin_nonfin
 			,t.ipo_date as start_date
 			,t.delist_date as end_date
 			,make_date(f.valid_year,1,1) as start_year 
@@ -569,6 +587,8 @@ with fndmntl as
 	
 select
 	(date_trunc('quarter', publish_date) + interval '4 month - 1 day')::date as date_available
+	,universe.sector
+	,universe.fin_nonfin
 	,fndmntl.*
 from 
 	fndmntl
@@ -576,5 +596,5 @@ from
 	on fndmntl.ticker = universe.ticker
 	and fndmntl.publish_date between universe.start_date and universe.end_date -- minus 1 as we need a burn in period for 1 yr returns
 	and fndmntl.publish_date between universe.start_year and universe.end_year
-	order by 2,6 
+	order by 4,9 
 ;

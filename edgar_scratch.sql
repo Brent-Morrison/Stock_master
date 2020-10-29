@@ -291,22 +291,19 @@ sf_sic.max_sic
 
 --------------------------------------------------	
 
-
-where 
-	symbol in ('A','AAL','AAN','AAWW','ABM','ACCO','ACM','AAPL','ADBE','ADI','ADT','AKAM','AMD') 
-	and date_stamp > '2013-12-31'
-order by 1,2
-	
-	
 select 
-(date_trunc('month', last_trade_date) + interval '1 month - 1 day')::date as month_end
-,last_trade_date
-from 
-	(
-		select 
-		max("timestamp") as last_trade_date
-		from alpha_vantage.shareprices_daily
-		where symbol = 'GSPC'
-		group by date_trunc('month', "timestamp") 
-		order by max("timestamp") 
-	) t1
+nm.* 
+,case 
+	when value > 1e12 then value / 1e6
+	when value > 1e9 then value / 1e3
+	when value < 1e6 then value * 1e3
+	else value
+	end as shares_os
+from edgar.num nm
+where 1 = 1
+and adsh in ('0001615774-19-006777', '0001666359-17-000033', '0001004980-17-000023', '0001004980-18-000005','0001650030-18-000007','0001666359-17-000033','0000320193-20-000010') 
+and lower(tag) like ('%common%')
+and lower(tag) not like all (array['%issued%','%authorized%','%incremental%'])
+and uom = 'shares'
+and coreg = 'NVS'
+order by 1,4
