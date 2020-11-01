@@ -307,3 +307,15 @@ and lower(tag) not like all (array['%issued%','%authorized%','%incremental%'])
 and uom = 'shares'
 and coreg = 'NVS'
 order by 1,4
+
+
+
+select * from alpha_vantage.shareprices_daily where symbol = 'AAPL' and "timestamp" between '2014-06-01' and '2014-06-30'
+select * from alpha_vantage.shareprices_daily where symbol = 'FAST' and "timestamp" between '2019-05-01' and '2019-05-31'
+select * from alpha_vantage.shareprices_daily where symbol = 'CHDN' and "timestamp" between '2019-01-01' and '2019-01-31'
+
+select * from alpha_vantage.ticker_excl
+select * from alpha_vantage.tickers_to_update where symbol not in (select ticker from alpha_vantage.ticker_excl)
+delete from alpha_vantage.ticker_excl where status = 'failed_no_data'
+select distinct sec_qtr from edgar.num
+select count(*) from edgar.tag_stage

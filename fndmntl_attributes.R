@@ -15,6 +15,7 @@ library(lubridate)
 library(DBI)
 library(RPostgres)
 
+
 # Connect to postgres database
 con <- dbConnect(
   RPostgres::Postgres(),
@@ -25,13 +26,19 @@ con <- dbConnect(
   password  = rstudioapi::askForPassword("Password")
   )
 
+
 # Parameter and query string
 date_param <- '2017-01-01'
+
 sql1 <- "select * from edgar.qrtly_fndmntl_ts_vw where date_available >= ?date_param"
 sql1 <- sqlInterpolate(conn = con, sql = sql1, date_param = date_param)
 
 sql2 <- "select * from alpha_vantage.monthly_price_ts_vw where date_stamp >= ?date_param"
 sql2 <- sqlInterpolate(conn = con, sql = sql2, date_param = date_param)
+
+sql3 <- "select * from alpha_vantage.splits_vw where date_stamp >= ?date_param"
+sql3 <- sqlInterpolate(conn = con, sql = sql3, date_param = date_param)
+
 
 # Read data
 qry1 <- dbSendQuery(
@@ -43,8 +50,14 @@ qrtly_fndmntl_ts_raw <- dbFetch(qry1)
 qry2 <- dbSendQuery(
   conn = con, 
   statement = sql2
-) 
+  ) 
 monthly_price_ts_raw <- dbFetch(qry2)
+
+qry3 <- dbSendQuery(
+  conn = con, 
+  statement = sql3
+  ) 
+monthly_splits_raw <- dbFetch(qry3)
 
 
 # Impute missing values
@@ -55,6 +68,7 @@ qrtly_fndmntl_ts <- qrtly_fndmntl_ts_raw %>%
     cash_equiv_st_invest = if_else(is.na(cash_equiv_st_invest) | cash_equiv_st_invest == 0, total_assets * cash_ratio, cash_equiv_st_invest)
     ) %>% 
   ungroup()
+
 
 # Attributes requiring lagged quarterly data
 qrtly_fndmntl_ts <- qrtly_fndmntl_ts %>% 
@@ -79,14 +93,12 @@ date_range <-
 
 # Expand date and join price
 qrtly_fndmntl_ts <- qrtly_fndmntl_ts %>% 
-  #filter(ticker %in% c('A','AA')) %>% 
   group_by(ticker) %>% 
   complete(date_available = date_range, ticker) %>% 
   fill(sector:last_col()) %>% 
   filter(!is.na(sector)) %>% 
   ungroup()
 
-#xx1 <- qrtly_fndmntl_ts %>% filter(ticker %in% c('A','AA'))
 
 # Add month end date for join
 monthly_price_ts_raw$date_available = ceiling_date(monthly_price_ts_raw$date_stamp, unit = 'month') - 1
@@ -97,13 +109,50 @@ qrtly_fndmntl_ts <-
     y = monthly_price_ts_raw, 
     by = c('date_available' = 'date_available', 'ticker' = 'symbol')
     ) %>% 
+  left_join(
+    #x = qrtly_fndmntl_ts, 
+    y = monthly_splits_raw, 
+    by = c('date_available' = 'me_date', 'ticker' = 'symbol')
+  ) %>% 
   mutate(
-    mkt_cap     = round(shares_cso * close, 3),   # THIS TO BE UPDATED FOR RULES RE CSO / ESCO
-    book_price  = round(-total_equity / mkt_cap, 3)
+    shares_cso_fact = case_when(
+      -total_equity / (.000001 * shares_cso * close) > 0.025 & -total_equity / (.000001 * shares_cso * close) < 20 ~ .000001,
+      -total_equity / (.001 * shares_cso * close) > 0.025 & -total_equity / (.001 * shares_cso * close) < 20 ~ .001,
+      -total_equity / (1 * shares_cso * close) > 0.025 & -total_equity / (1 * shares_cso * close) < 20 ~ 1,
+      -total_equity / (1000 * shares_cso * close) > 0.025 & -total_equity / (1000 * shares_cso * close) < 20 ~ 1000,
+      -total_equity / (1000000 * shares_cso * close) > 0.025 & -total_equity / (1000000 * shares_cso * close) < 20 ~ 1000000,
+      TRUE ~ 0
+      ),
+    shares_ecso_fact = case_when(
+      -total_equity / (.000001 * shares_ecso * close) > 0.025 & -total_equity / (.000001 * shares_ecso * close) < 20 ~ .000001,
+      -total_equity / (.001 * shares_ecso * close) > 0.025 & -total_equity / (.001 * shares_ecso * close) < 20 ~ .001,
+      -total_equity / (1 * shares_ecso * close) > 0.025 & -total_equity / (1 * shares_ecso * close) < 20 ~ 1,
+      -total_equity / (1000 * shares_ecso * close) > 0.025 & -total_equity / (1000 * shares_ecso * close) < 20 ~ 1000,
+      -total_equity / (1000000 * shares_ecso * close) > 0.025 & -total_equity / (1000000 * shares_ecso * close) < 20 ~ 1000000,
+      TRUE ~ 0
+      ),
+    mkt_cap = if_else(shares_cso_fact == 1, round(shares_cso * close, 3),
+              if_else(shares_ecso_fact == 1, round(shares_ecso * close, 3),
+              if_else(shares_cso_fact != 0, round(shares_cso * shares_cso_fact * close, 3),
+              if_else(shares_ecso_fact != 0, round(shares_ecso * shares_ecso_fact * close, 3), 0
+              )))),
+    book_price = round(-total_equity / mkt_cap, 3)
     )
 
 
 
+# Test HLF STOCK SPLIT 2018-05-15, 2 for 1, other split stocks - ACGL, EQT, FAST
+# Need to add close price pre split
+# select * from alpha_vantage.shareprices_daily where split_coefficient != 1 and symbol != 'GSPC' order by "timestamp" desc
+# Ad  checks for large changes in market cap.  Decpompose change into that driven by share count and share price.
+xx1 <- qrtly_fndmntl_ts %>% 
+  filter(ticker %in% c('AFL','AAPL','AGCL','CHDN','PCG','ARW','GRMN','SBUX','EQT','HLF','FAST')) %>% 
+  select(ticker, date_available, report_date, publish_date, shares_cso, shares_ecso, total_equity, close, split_coef, adjusted_close, mkt_cap, book_price) %>% 
+  group_by(ticker) %>% 
+  mutate(
+    diff_delta = round((close-lag(close))/lag(close) - (adjusted_close-lag(adjusted_close))/lag(adjusted_close),2)
+    ) %>% 
+  ungroup()
 
 
 

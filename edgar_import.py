@@ -21,7 +21,7 @@ from zipfile import ZipFile
 
 
 # Create list of URL's for dates required
-# Note that the current quarter is a different url
+# Note that t2020 Q1 is under a different url
 # https://www.sec.gov/files/node/add/data_distribution/2020q1.zip
 
 # url_list = ['https://www.sec.gov/files/node/add/data_distribution/2020q2.zip']
@@ -30,7 +30,7 @@ from zipfile import ZipFile
 start_year = 2020
 end_year = 2020
 start_qtr = 2
-end_qtr = 2
+end_qtr = 3
 
 base_url = 'https://www.sec.gov/files/dera/data/financial-statement-data-sets/'
 url_list = [base_url+str(y)+'q'+str(q)+'.zip' 
@@ -151,12 +151,16 @@ for url in url_list:
     # Close zip
     zf.close()
 
-# Close connection
-conn.close()
 
 # Save log file
 log = pd.DataFrame.from_dict(zf_info_dict, orient='index', columns=['line_count'])
 log.to_csv('log.csv')
+
+
+# Close connection
+conn.close()
+
+
 
 
 

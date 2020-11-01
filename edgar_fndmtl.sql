@@ -38,6 +38,9 @@
 * 0001615774-19-006777 - GARMIN LTD, shares o/s in millions, select * from edgar.num where adsh = '0001615774-19-006777'
 * 0001666359-17-000033 - ARROW ELECTRONICS INC, shares o/s quoted in 1000's instead of whole number per all other filings
 * 
+* Only certain instances of ARCH CAPITAL being returned - select distinct adsh from edgar.num where adsh like '%947484%', this condition not satisfied "and sb.afs = '1-LAF'",
+* quarterly filings are labelled afs=2-ACC
+* 
 * Exclude REAL ESTATE INVESTMENT TRUSTS 6798??
 * 
 ******************************************************************************/
@@ -79,14 +82,14 @@ with t1 as
 		where 1 = 1
 		-- Filter forms 10-K/A, 10-Q/A, these being restated filings
 		-- This should be done with sb.prevrpt however this was attribute removed pre insert 
-		and sb.form in ('10-K', '10-Q')
+		and sb.form in ('10-K', '10-Q') 
 		-- coreg filter to avoid duplicates
-		and nm.coreg = 'NVS'
+		and nm.coreg = 'NVS' 
 		-- Filer status filter return only larger companies
-		-- refer to notes in edgar_structure.xlxs
+		-- refer to notes in edgar_structure.xlxs and 'https://www.sec.gov/corpfin/secg-accelerated-filer-and-large-accelerated-filer-definitions'
 		and sb.afs = '1-LAF'
 		-- FILTERS FOR INVESTIGATION
-		--and nm.adsh = '0001615774-17-006096'
+		--and nm.adsh = '0000947484-17-000024'
 		--and sb.name in ('APPLE INC','ARROW ELECTRONICS INC','PG&E CORP')
 		--or sb.cik in (1090872,1121788)
 	)
@@ -341,9 +344,13 @@ alter table edgar.edgar_fndmntl_all_tb owner to postgres;
 * 
 ******************************************************************************/
 
-insert into edgar.edgar_fndmntl_all_tb select * from edgar.edgar_fndmntl_all_vw;
+insert into edgar.edgar_fndmntl_all_tb 
+	select * 
+	from edgar.edgar_fndmntl_all_vw
+	where sec_qtr in ('2020q2','2020q3')
+;
 
-select * from edgar.edgar_fndmntl_all_tb where cik in (320193,7536,1004980,1121788);
+select * from edgar.edgar_fndmntl_all_tb where cik in (815556,1459417,771497);
 
 
 
