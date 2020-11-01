@@ -19,8 +19,8 @@ import yfinance as yf
 password = ''
 apikey = ''
 wait_seconds = 20                               # Wait time before pinging AV server
-update_to_date = dt.datetime(2020,8,4).date()   # If the last date in the database is this date, do nothing
-batch_size = 120                                # Number of tickers to process per batch
+update_to_date = dt.datetime(2020,10,30).date()   # If the last date in the database is this date, do nothing
+batch_size = 250                                # Number of tickers to process per batch
 
 # Connect to postgres database
 engine = create_engine('postgresql://postgres:'+password+
@@ -50,6 +50,7 @@ def get_alphavantage(symbol, outputsize, apikey):
 tickers = pd.read_sql(
   sql=text("""
     select * from alpha_vantage.tickers_to_update
+    where symbol not in (select ticker from alpha_vantage.ticker_excl)
   """)
   ,con=conn
   )
@@ -240,6 +241,8 @@ max_date = pd.read_sql(sql=text(
   from alpha_vantage.shareprices_daily 
   where symbol = 'GSPC'"""),
   con=conn)
+
+# Convert max_date to list
 #max_date = max_date['max'].tolist()
 
 # Return only data post existing date
