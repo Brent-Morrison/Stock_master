@@ -356,10 +356,12 @@ select * from edgar.edgar_fndmntl_all_tb where cik in (815556,1459417,771497);
 
 /******************************************************************************
 * 
-* edgar_fndmntl_fltr_fn
+* edgar.edgar_fndmntl_fltr_fn
 * 
 * DESCRIPTION: 
 * Rank and filter for top n stocks by assets and equity
+* The 'bad_data_filter' argument when set to true will return stocks with any of 
+* nil cash, equity, net income or shares outstanding
 * 
 * ERRORS
 * none
@@ -369,7 +371,7 @@ select * from edgar.edgar_fndmntl_all_tb where cik in (815556,1459417,771497);
 -- Test	
 select * from edgar.edgar_fndmntl_fltr_fn(nonfin_cutoff => 5, fin_cutoff => 5, qrtr => '%q1')
 select * from edgar.edgar_fndmntl_fltr_fn(nonfin_cutoff => 5, fin_cutoff => 5, qrtr => null)
-select * from edgar.edgar_fndmntl_fltr_fn(150, 950, null, true)
+select * from edgar.edgar_fndmntl_fltr_fn(300, 2000, null, false) where cik = 1702780 order by cik, ddate
 
 -- Function
 create or replace function edgar.edgar_fndmntl_fltr_fn
@@ -475,20 +477,20 @@ create or replace function edgar.edgar_fndmntl_fltr_fn
 
 /******************************************************************************
 * 
-* qrtly_fndmntl_ts_vw
+* edgar.qrtly_fndmntl_ts_vw
 * 
 * DESCRIPTION: 
 * Join simfin and edgar data to export to R / python.
 * Will be used to seed "access_layer.fundamental_universe" table.
 * 
 * ERRORS:
+* 
 * TO DO:
-* - Universe CTE, rolling calc. burn in period required
 * 
 ******************************************************************************/
 	
 --Test
-select * from edgar.qrtly_fndmntl_ts_vw
+select * from edgar.qrtly_fndmntl_ts_vw where ticker = 'ATUS'
 	
 create or replace view edgar.qrtly_fndmntl_ts_vw as 
 
@@ -568,7 +570,7 @@ with fndmntl as
 	)	
 	
 ,universe as 
-	(	-- Need to add a preceding year to the CTE to allow for rolling calc. burn in period
+	(	
 		select 
 			t.ticker 
 			,t.sic
@@ -576,7 +578,10 @@ with fndmntl as
 			,i.fin_nonfin
 			,t.ipo_date as start_date
 			,t.delist_date as end_date
-			,make_date(f.valid_year,1,1) as start_year 
+			,case 
+				when lag(f.valid_year) over (partition by t.ticker order by f.valid_year) is null then make_date(f.valid_year-2,1,1) 
+				else make_date(f.valid_year,1,1) 
+				end as start_year
 			,make_date(f.valid_year,12,31) as end_year
 		from 
 			reference.fundamental_universe f
@@ -601,7 +606,7 @@ from
 	fndmntl
 	inner join universe
 	on fndmntl.ticker = universe.ticker
-	and fndmntl.publish_date between universe.start_date and universe.end_date -- minus 1 as we need a burn in period for 1 yr returns
+	and fndmntl.publish_date between universe.start_date and universe.end_date
 	and fndmntl.publish_date between universe.start_year and universe.end_year
 	order by 4,9 
 ;

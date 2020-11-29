@@ -3,6 +3,10 @@
 # Grab daily price data from AlphaVantage
 # - Add logic to do nothing when there is no new data, eg ZAYO 
 #
+# SQL write performance enhancements
+# - https://hakibenita.com/fast-load-data-python-postgresql
+# - https://stackoverflow.com/questions/23103962/how-to-write-dataframe-to-postgres-table/47984180#47984180
+#
 ##############################################################################
 
 # Libraries
@@ -19,8 +23,8 @@ import yfinance as yf
 password = ''
 apikey = ''
 wait_seconds = 20                               # Wait time before pinging AV server
-update_to_date = dt.datetime(2020,10,30).date()   # If the last date in the database is this date, do nothing
-batch_size = 250                                # Number of tickers to process per batch
+update_to_date = dt.datetime(2020,10,30).date() # If the last date in the database is this date, do nothing
+batch_size = 350                                # Number of tickers to process per batch
 
 # Connect to postgres database
 engine = create_engine('postgresql://postgres:'+password+
@@ -75,6 +79,10 @@ for ticker in ticker_list:
   symbol=ticker[0]
   last_date_in_db=ticker[1]
   last_adj_close=ticker[2]
+
+  # Stop if the batch size is met
+  if iter_count == batch_size:
+    break
 
   # If data is up to date exit loop
   if last_date_in_db >= update_to_date:
@@ -158,9 +166,6 @@ for ticker in ticker_list:
     last_av_dates.append(inner)
     print('loop no.', iter_count,':', symbol, 'failed - unable to push to db')
     continue
-
-  if push_count == batch_size:
-    break
 
 
 # Send list of stale stocks to db

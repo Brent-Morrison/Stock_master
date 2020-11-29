@@ -1,44 +1,49 @@
 /******************************************************************************
 * 
-* Create ticker to cik view
+* USEFUL QUERIES
 * 
-* DEFECTS
-* - This will currently exclude C and GS
 * 
 ******************************************************************************/
 
-drop view edgar.edgar_cik_ticker_view;
+select * from alpha_vantage.shareprices_daily where symbol = 'AIG' and "timestamp" between '2019-01-01' and '2019-01-31'
 
-create or replace view edgar.edgar_cik_ticker_view as 
-		
-select 
-cik_str 
-,ticker 
-,title
-,ticker_count
-from 
-	(
-	select 
-	ct.* 
-	,length(ticker) as len
-	,min(length(ticker)) over (partition by title) as min_len
-	-- This rank causes an issue with C and GS
-	,rank() over (partition by title order by ticker asc) as rnk
-	,count(ticker) over (partition by cik_str) as ticker_count 
-	from edgar.company_tickers ct
-	--where title in ('SPHERIX INC','BERKSHIRE HATHAWAY INC','CITIGROUP INC','GOLDMAN SACHS GROUP INC')
-	) t1
--- Assume longer tickers relate to non-primary share classes, eg. title = 'SPHERIX INC'
-where len = min_len
--- In the event of multiple tickers of the same length,
--- take the first ranked, eg. for title = 'BERKSHIRE HATHAWAY INC',
--- select 'BRKA' over 'BRKB'
-and rnk = 1
-;
+select * from alpha_vantage.ticker_excl
 
-select * from edgar.company_tickers
+delete from alpha_vantage.ticker_excl where status = 'failed_no_data'
 
-select * from edgar.edgar_cik_ticker_view
+
+
+
+
+
+/******************************************************************************
+* 
+* Cascade dependencies
+* https://stackoverflow.com/questions/37976832/how-to-list-tables-affected-by-cascading-delete
+* 
+******************************************************************************/
+
+with recursive chain as (
+    select classid, objid, objsubid, conrelid
+    from pg_depend d
+    join pg_constraint c on c.oid = objid
+    where refobjid = 'reference.ticker_cik_sic_ind'::regclass and deptype = 'n'
+union all
+    select d.classid, d.objid, d.objsubid, c.conrelid
+    from pg_depend d
+    join pg_constraint c on c.oid = objid
+    join chain on d.refobjid = chain.conrelid and d.deptype = 'n'
+    )
+select pg_describe_object(classid, objid, objsubid), pg_get_constraintdef(objid)
+from chain;
+
+--------
+
+select pg_describe_object(classid, objid, objsubid)
+from pg_depend 
+where refobjid = 'reference.ticker_cik_sic_ind'::regclass and deptype = 'n';
+
+
 
 
 
@@ -57,7 +62,7 @@ ticker
 ,max(date) as max_date
 ,count(*) 
 from simfin.us_shareprices_daily
-where ticker = 'FOX'
+where ticker = 'AAT'
 group by 1
 order by 1;
 
@@ -69,7 +74,7 @@ symbol
 ,max(timestamp) as max_date
 ,count(*) as records
 from alpha_vantage.shareprices_daily 
-where symbol = 'FOX'
+where symbol = 'AAT'
 group by symbol
 order by symbol
 
@@ -308,14 +313,29 @@ and uom = 'shares'
 and coreg = 'NVS'
 order by 1,4
 
+select * from edgar.num where adsh = '0001411579-19-000063' and tag = 'WeightedAverageNumberOfSharesOutstandingBasic'
+select * from edgar.sub where cik = '1702780'
+select tag, count(distinct adsh) from edgar.num where uom = 'shares' group by 1
 
+		select 
+		adsh as t11_adsh
+		,value/1000000 as l1_ecso
+		from edgar.num where value = 52080077
+		where tag like ('EntityCommonStockSharesOutstanding' 
+		and coreg = 'NVS'
+		and adsh = '0001411579-19-000063'
 
 select * from alpha_vantage.shareprices_daily where symbol = 'AAPL' and "timestamp" between '2014-06-01' and '2014-06-30'
 select * from alpha_vantage.shareprices_daily where symbol = 'FAST' and "timestamp" between '2019-05-01' and '2019-05-31'
-select * from alpha_vantage.shareprices_daily where symbol = 'CHDN' and "timestamp" between '2019-01-01' and '2019-01-31'
+select count(*) from alpha_vantage.shareprices_daily where symbol = 'AAT' and "timestamp" between '2016-01-01' and '2019-01-31'
 
-select * from alpha_vantage.ticker_excl
+select * from reference.fundamental_universe where cik = 1500217
+select * from reference.ticker_cik_sic_ind where cik = 1500217
+select * from edgar.edgar_fndmntl_all_tb where cik = 1500217
+
 select * from alpha_vantage.tickers_to_update where symbol not in (select ticker from alpha_vantage.ticker_excl)
 delete from alpha_vantage.ticker_excl where status = 'failed_no_data'
 select distinct sec_qtr from edgar.num
-select count(*) from edgar.tag_stage
+SELECT pg_database_size('postgres')
+SELECT pg_size_pretty(pg_database_size('postgres'))
+select pg_size_pretty(pg_table_size('stock_master.edgar.num'))

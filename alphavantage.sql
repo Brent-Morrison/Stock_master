@@ -104,15 +104,8 @@ create or replace view alpha_vantage.tickers_to_update as
 ;
 
 
-select * from reference.ticker_cik_sic_ind--fundamental_universe
 
-			select 
-			tcsi.ticker 
-			from reference.fundamental_universe fu
-			inner join reference.ticker_cik_sic_ind tcsi 
-			on fu.cik = tcsi.cik 
-			where fu.valid_year = 2020
-			and tcsi.delist_date = '9998-12-31'
+
 
 
 /******************************************************************************
@@ -126,7 +119,6 @@ select * from reference.ticker_cik_sic_ind--fundamental_universe
 * Used by Python script "return_attributes.py"
 * 
 * TO DO:
-* - Universe CTE, rolling calc. burn in period required
 * 
 *  
 ******************************************************************************/
@@ -186,14 +178,17 @@ with prices as
 	)	
 	
 ,universe as 
-	(	-- Need to add a preceding year to the CTE to allow for rolling calc. burn in period
+	(	
 		select 
 			t.ticker 
 			,t.sic
 			,i.sector
 			,t.ipo_date as start_date
 			,t.delist_date as end_date
-			,make_date(f.valid_year,1,1) as start_year 
+			,case 
+				when lag(f.valid_year) over (partition by t.ticker order by f.valid_year) is null then make_date(f.valid_year-2,1,1) 
+				else make_date(f.valid_year,1,1) 
+				end as start_year
 			,make_date(f.valid_year,12,31) as end_year
 		from 
 			reference.fundamental_universe f
@@ -324,11 +319,25 @@ create or replace view alpha_vantage.splits_vw as
 * alpha_vantage.price_duplicates
 * 
 * DESCRIPTION:
-* Return stocks with data that has been downloaded more than once
+* Delete stocks with data that has been downloaded more than once
 * 
 *  
 ******************************************************************************/
 
+-- This ignores the order of the capture date
+delete from alpha_vantage.shareprices_daily dupes
+where exists 
+	(
+		select from alpha_vantage.shareprices_daily
+		where ctid < dupes.ctid
+		and symbol = dupes.symbol
+		and "timestamp" = dupes."timestamp"
+		and adjusted_close = dupes.adjusted_close
+		and volume = dupes.volume
+  	)
+ ;
+
+-- Dupes
 select 
 distinct symbol 
 from 
@@ -347,9 +356,8 @@ from
 	) t1
 
 	
-
 	
-
+	
 
 	
 	
