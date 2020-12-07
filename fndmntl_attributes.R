@@ -3,6 +3,18 @@
 #
 # Script to extract data from STOCK_MASTER database and enrich fundamental data
 # data with various attributes
+# 
+# ISSUES
+#
+# Asset growth can be very large (think mergers & acquisitions).  We do not want to remove outliers as suspected spurious, rather
+# winsorise to allow for better statistical properties.
+#
+# EQT is only a divestiture adjustment as opposed to stock split - the split impacts price only, not shares o/s
+# https://www.fool.com/investing/2018/11/13/heres-how-eqt-corporation-stock-fell-46-today-but.aspx
+# 
+# CRC - incorrect adjustment to shares O/s.  Implemented rule to toggle simfin source which has split adjusted shares o/s.
+# 
+# RIG - incorect shares o/s adjustment applied Oct-2020 with low  
 #
 #==============================================================================
 
@@ -263,17 +275,8 @@ ggplot(missing_3) +
   coord_cartesian(ylim=c(-exna_rec * .95, max(missing_3$ymax) + .025))
 
 
-# ISSUES
 
-# Asset growth can be very large (think mergers & acquisitions).  We do not want to remove outliers as suspected spurious, rather
-# winsorise to allow for better statistical properties.
 
-# EQT is only a divestiture adjustment as opposed to stock split - the split impacts price only, not shares o/s
-# https://www.fool.com/investing/2018/11/13/heres-how-eqt-corporation-stock-fell-46-today-but.aspx
-# 
-# CRC - incorrect adjustment to shares O/s.  Implemented rule to toggle simfin source which has split adjusted shares o/s.
-# 
-# RIG - incorect shares o/s adjustment applied Oct-2020 with low  
 xx1 <- monthly_fndmntl_ts %>% 
   filter(ticker %in% c('AFL','AAPL','AGCL','CHDN','CRC','PCG','ARW','GRMN','SBUX','EQT','HLF','FAST','TSLA')) %>% 
   select(
@@ -284,7 +287,3 @@ xx1 <- monthly_fndmntl_ts %>%
 # Disconnect
 dbDisconnect(con)
 
-
-# Indicators to add
-# Standardised Unexplained Volume - https://www.biz.uiowa.edu/faculty/jgarfinkel/pubs/divop_JAR.pdf (s.3.1.2), 
-# https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3212934

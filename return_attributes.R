@@ -1,21 +1,28 @@
 
 #==============================================================================
 #
-# Script to extract data from postgres database and enrich stock return
-# data with various attributes
+# Script to extract stock price data from postgres database, enrich with
+# various "technical indicator" attributes and write to database.
+#
+# TO DO
+# 1. Add Standardised Unexplained Volume per https://www.biz.uiowa.edu/faculty/jgarfinkel/pubs/divop_JAR.pdf (s.3.1.2). 
+#    Efficacy per https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3212934
+# 2. Change set-up so script takes year as a parameter and outputes results for that year,
+#    ensure burn-in data is collected
 #
 #==============================================================================
 
 # RollingWindow installation
 
 # https://github.com/andrewuhl/RollingWindow
-# library("devtools")
-# install_github("andrewuhl/RollingWindow")
+#library("devtools")
+#install_github("andrewuhl/RollingWindow")
 
 library(RollingWindow)
 library(slider)
 library(dplyr)
 library(tidyr)
+library(purrr)
 library(forcats)
 library(ggplot2)
 library(ggridges)
@@ -34,7 +41,7 @@ con <- dbConnect(
 )
 
 # Parameter and query string
-date_param <- '2017-01-01'
+date_param <- '2018-01-01'
 sql <- "select * from alpha_vantage.daily_price_ts_vw where date_stamp > ?date_param"
 sql <- sqlInterpolate(conn = con, sql = sql, date_param = date_param)
 
@@ -71,6 +78,12 @@ daily <- df_raw %>%
     ,smax_20d               = slide_dbl(rtn_ari_1d, ~mean(tail(sort(.x), 5)), .before = 20) / vol_ari_20d
     ,cor_rtn_1d_mkt_120d    = RollingCorr(rtn_ari_1d, rtn_ari_1d_mkt, window = 120, na_method = 'window')
     ,beta_rtn_1d_mkt_120d   = RollingBeta(rtn_ari_1d, rtn_ari_1d_mkt, window = 120, na_method = 'window')
+    ,suv = slide(
+      .x = tibble(volume = volume, rtn_ari_1d = rtn_ari_1d),  #., See https://davisvaughan.github.io/slider/articles/rowwise.html
+      .f = suv, 
+      .before = 59, 
+      .complete = TRUE
+    )
   )
 
 monthly <- daily %>% 
@@ -124,8 +137,10 @@ monthly <- monthly %>%
     beta_rtn_1d_mkt_120d_dcl = ntile(beta_rtn_1d_mkt_120d, 10)  
   ) %>% ungroup()
 
+
 # Convert to dataframe for upload to database
 monthly <- monthly %>% drop_na() %>% as.data.frame(monthly)
+
 
 # Write to postgres database
 dbWriteTable(
@@ -135,6 +150,7 @@ dbWriteTable(
   row.names = FALSE, 
   append = TRUE
   )
+
 
 # Disconnect
 dbDisconnect(con)
@@ -158,17 +174,143 @@ dfm %>% drop_na() %>%
   mutate(kurt_ari_120d_dcl = as.factor(kurt_ari_120d_dcl),
          date_stamp   = fct_rev(as.factor(date_stamp))) %>% 
   ggplot(aes(
-    x           = fwd_rtn_1m, 
-    y           = date_stamp, 
-    fill        = kurt_ari_120d_dcl
+    x = fwd_rtn_1m, 
+    y = date_stamp, 
+    fill = kurt_ari_120d_dcl
   )) + 
   geom_density_ridges(
     alpha = .6, 
     color = 'white', 
-    from = -.6, to = .6, 
+    from = -.6, 
+    to = .6, 
     panel_scaling = FALSE
   )
 
 
 # Scratch
 tge <- df_raw %>% filter(symbol == 'TGE')
+
+
+
+
+
+# STANDARDISED UNEXPLAINED VOLUME CALCULATION - 1
+
+# SUV function
+suv <- function(df) { 
+  df <- df %>% 
+    select(volume, rtn_ari_1d) %>% 
+    mutate(
+      pos = if_else(rtn_ari_1d >= 0, abs(rtn_ari_1d), 0),
+      neg = if_else(rtn_ari_1d < 0, abs(rtn_ari_1d), 0)
+      )
+  mdl <- lm(volume ~ pos + neg, data = df)
+  last(residuals(mdl))/sigma(mdl)
+}
+
+# Test data
+suv_test_data <- daily %>% filter(symbol %in% c('A','AAPL')) %>% select(symbol:rtn_ari_1d) %>% ungroup()
+
+# Results 1
+suv_test_result <- suv(suv_test_data)
+
+# Results 2
+suv_test_result <- suv_test_data %>% 
+  group_by(symbol) %>% 
+  mutate(
+    suv = slide(
+      .x = tibble(volume = volume, rtn_ari_1d = rtn_ari_1d),  #., See https://davisvaughan.github.io/slider/articles/rowwise.html
+      .f = suv, 
+      .before = 59, 
+      .complete = TRUE
+      )
+    )
+
+write.csv(suv_test_data, 'suv_test_data.csv')
+
+
+
+# STANDARDISED UNEXPLAINED VOLUME CALCULATION - 2
+
+# SUV function
+suv <- function(df) { 
+  max_date = max(df$date_stamp)
+  df <- df %>% 
+    select(volume, rtn_ari_1d) %>% 
+    mutate(
+      pos = if_else(rtn_ari_1d >= 0, abs(rtn_ari_1d), 0),
+      neg = if_else(rtn_ari_1d < 0, abs(rtn_ari_1d), 0)
+    )
+  mdl <- lm(volume ~ pos + neg, data = df)
+  suv <- last(residuals(mdl))/sigma(mdl)
+  return(tibble(date_stamp = max_date, suv = suv))
+}
+
+
+# SUV by group
+suv_by_grp <- function(df) { 
+  df %>% 
+    split(.$symbol) %>%
+    map_dfr(., suv, .id = 'symbol')
+}
+
+
+# Apply to data frame
+suv_test <- daily %>% 
+  ungroup() %>% 
+  arrange(date_stamp) %>% 
+  slide_period_dfr(
+    .x =  .,
+    .i = .$date_stamp,
+    .period = "month",
+    .f = suv_by_grp,
+    .before = 5,
+    .complete = TRUE
+  )
+
+
+
+
+
+
+
+
+
+# INTRA-PORTFOLIO CORRELATION
+
+# Mean of matrix
+mean_mtrx <- function(x) {
+  mean(x[upper.tri(x)])
+}
+
+# IPC function
+ipc <- function(df) {
+  max_date <- max(df$date_stamp)
+  ipc <- df %>%
+    select(date_stamp, symbol, rtn_log_1d) %>%
+    pivot_wider(names_from = symbol, values_from = rtn_log_1d) %>% 
+    select(-date_stamp) %>% 
+    cor(use = 'pairwise.complete.obs') %>%
+    mean_mtrx()
+  return(tibble(date_stamp = max_date, ipc = ipc))
+}
+
+# IPC by group
+ipc_by_grp <- function(df) { 
+  df %>% 
+    split(.$sector) %>%
+    map_dfr(., ipc, .id = 'sector')
+}
+
+# Apply to data frame
+ipc_test <- daily %>% 
+  ungroup() %>% 
+  arrange(date_stamp) %>% 
+  slide_period_dfr(
+    .x =  .,
+    .i = .$date_stamp,
+    .period = "month",
+    .f = ipc_by_grp,
+    .before = 5,
+    .complete = TRUE
+    )
