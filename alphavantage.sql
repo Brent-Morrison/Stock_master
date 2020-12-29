@@ -142,7 +142,7 @@ with prices as
 		,adjusted_close
 		,volume
 		from 
-			(
+			(	-- Capture most recent version of price data (i.e., split & dividend adjusted)
 				select 
 				sd.* 
 				,row_number() over (partition by "timestamp", symbol order by capture_date desc) as row_num
@@ -183,6 +183,7 @@ with prices as
 			t.ticker 
 			,t.sic
 			,i.sector
+			--,i.fin_nonfin
 			,t.ipo_date as start_date
 			,t.delist_date as end_date
 			,case 
@@ -244,7 +245,7 @@ from
 ******************************************************************************/
 
 -- Test
-select * from alpha_vantage.monthly_price_ts_vw where symbol = 'A'
+select * from alpha_vantage.monthly_price_ts_vw where symbol = 'ABG'
 
 create or replace view alpha_vantage.monthly_price_ts_vw as 
 

@@ -1,8 +1,8 @@
 
 #==============================================================================
 #
-# Script to extract data from STOCK_MASTER database and enrich fundamental data
-# data with various attributes
+# Script extracting SEC derived accounting data from the STOCK_MASTER database, 
+# and constructing fundamental and valuation attributes
 # 
 # ISSUES
 #
@@ -14,7 +14,19 @@
 # 
 # CRC - incorrect adjustment to shares O/s.  Implemented rule to toggle simfin source which has split adjusted shares o/s.
 # 
-# RIG - incorect shares o/s adjustment applied Oct-2020 with low  
+# RIG - incorrect shares o/s adjustment applied Oct-2020 with low  
+#
+# AA - intangible assets is inconsistent, nil in some months and positive in others
+#
+# GEF - reports lodged on consecutive quarters labeled as Q2 returned (no year end change) 
+#
+# AAP - Fiscal period is incorrectly labeled Q2 for two consecutive report dates (publish dates 2018-05-22 & 2018-08-14)
+#
+# PCG - share count doubles in qtr 2020-06-30, 'LiabilitiesSubjectToCompromise'? 2019-12-31
+#
+# KMB - return on equity
+#
+# MA - shares outstanding errors
 #
 #==============================================================================
 
@@ -23,8 +35,12 @@ library(dplyr)
 library(tibble)
 library(tidyr)
 library(purrr)
-library(summarytools)
+library(broom)
+library(mblm)
+library(DescTools)
+library(naniar)
 library(moments)
+library(DT)
 library(forcats)
 library(ggplot2)
 library(ggridges)
@@ -32,6 +48,14 @@ library(lubridate)
 library(DBI)
 library(RPostgres)
 
+
+
+
+#==============================================================================
+#
+# DATABASE CONNECTION AND DATA RETRIEVAL
+#
+#==============================================================================
 
 # Connect to postgres database
 con <- dbConnect(
@@ -44,20 +68,21 @@ con <- dbConnect(
   )
 
 
-# Parameters and query string
+# Parameters and query string, dates to be formatted as character string
 end_date <- '2020-10-31'
 start_date <- paste(
   year(as.Date(end_date) - years(2)), 
-  sprintf('%02d', month(as.Date(end_date) %m-% months(1))), 
+  sprintf('%02d', month(as.Date(end_date) %m-% months(3))), 
   '01', 
   sep = '-')
 
 
-# Read data
+# Read data and ensure correct ordering
 sql1 <- "select * from edgar.qrtly_fndmntl_ts_vw where date_available >= ?start_date and date_available <= ?end_date"
 sql1 <- sqlInterpolate(conn = con, sql = sql1, start_date = start_date, end_date = end_date)
 qry1 <- dbSendQuery(conn = con, statement = sql1) 
-qrtly_fndmntl_ts_raw<- dbFetch(qry1)
+qrtly_fndmntl_ts_raw <- dbFetch(qry1)
+qrtly_fndmntl_ts_raw <- arrange(qrtly_fndmntl_ts_raw, ticker, report_date)
 
 sql2 <- "select * from alpha_vantage.monthly_price_ts_vw where date_stamp >= ?start_date and date_stamp <= ?end_date"
 sql2 <- sqlInterpolate(conn = con, sql = sql2, start_date = start_date, end_date = end_date)
@@ -70,23 +95,122 @@ qry3 <- dbSendQuery(conn = con, statement = sql3)
 monthly_splits_raw <- dbFetch(qry3)
 
 
-# Impute missing values
+
+
+
+#==============================================================================
+# 
+# CHECK MISSINGNESS
+# missing defined as nil or NA cash, total assets, total equity, net income,
+# shares outstanding or non-continuous data (ie., missing quarter)
+#
+#==============================================================================
+
+# Stocks with missing data
+qrtly_fndmntl_excl <- qrtly_fndmntl_ts_raw %>% 
+  group_by(ticker) %>% 
+  mutate(
+    miss_qtr_ind = case_when(
+      is.na(lag(fiscal_period)) ~ 1,
+      fiscal_period == 'Q1' & lag(fiscal_period) == 'Q4' ~ 1,
+      fiscal_period == 'Q2' & lag(fiscal_period) == 'Q1' ~ 1,
+      fiscal_period == 'Q3' & lag(fiscal_period) == 'Q2' ~ 1,
+      fiscal_period == 'Q4' & lag(fiscal_period) == 'Q3' ~ 1,
+      TRUE ~ 0)
+  ) %>% 
+  ungroup() %>% 
+  mutate(shares_os = pmax(shares_cso, shares_ecso, na.rm = TRUE)) %>% 
+  replace_with_na(replace = list(
+    cash_equiv_st_invest = c(0), 
+    total_assets = c(0), 
+    total_equity = c(0), 
+    shares_os = c(0),
+    miss_qtr_ind = c(0)
+  ))
+
+
+# Missingness plot (FILTER BY VALID_YEAR)
+qrtly_fndmntl_excl %>% filter(year(report_date) == year(end_date)) %>% select(-date_available, -shares_cso, -shares_ecso) %>% vis_miss()
+
+
+# Co-occurance plot 
+qrtly_fndmntl_excl %>% filter(year(report_date) == year(end_date)) %>% select(-shares_cso, -shares_ecso) %>% gg_miss_upset()
+
+
+# Data for bar plot
+fnl_initial_popn <- qrtly_fndmntl_ts_raw %>% 
+  filter(year(report_date) == year(end_date)) %>% 
+  select(ticker) %>% n_distinct()
+
+fnl_shares_os <- qrtly_fndmntl_excl %>%
+  filter(year(report_date) == year(end_date)) %>% 
+  select(ticker, shares_os) %>%  
+  filter(is.na(shares_os)) %>% 
+  select(ticker) %>% n_distinct()
+
+fnl_miss_qtr <- qrtly_fndmntl_excl %>%
+  filter(year(report_date) == year(end_date)) %>% 
+  select(ticker, shares_os, miss_qtr_ind) %>%  
+  filter(!is.na(shares_os), is.na(miss_qtr_ind)) %>% 
+  select(ticker) %>% n_distinct()
+
+
+# List tickers with either nil or NA for cash, total assets, total equity, net income or shares outstanding,
+# or non-continuous data in the year under analysis
+excluded <- qrtly_fndmntl_excl %>%
+  filter(year(report_date) == year(end_date)) %>% 
+  select(
+    ticker,
+    cash_equiv_st_invest, 
+    total_assets, 
+    total_equity, 
+    shares_os,
+    miss_qtr_ind
+  ) %>%  
+  filter_all(any_vars(is.na(.))) %>% 
+  #filter(across(everything(), ~is.na(.x))) %>% 
+  select(ticker) %>% 
+  distinct()
+
+
+# Exclude tickers with irreplaceable missing values (current year) and impute other missing values
 qrtly_fndmntl_ts <- qrtly_fndmntl_ts_raw %>% 
+  anti_join(excluded, by = 'ticker') %>% 
   group_by(sector) %>% 
   mutate(
     cash_ratio = mean(cash_equiv_st_invest / total_assets, na.rm = TRUE),
     cash_equiv_st_invest = if_else(is.na(cash_equiv_st_invest) | cash_equiv_st_invest == 0, total_assets * cash_ratio, cash_equiv_st_invest)
-    ) %>% 
+  ) %>% 
   ungroup()
 
 
-# Attributes requiring lagged quarterly data
+fnl_miss_qtr_chk <- qrtly_fndmntl_ts %>% 
+  filter(year(report_date) == year(end_date)) %>% 
+  select(ticker) %>% 
+  n_distinct()
+
+
+
+#==============================================================================
+# 
+# CREATE ATTRIBUTES REQUIRING LAGGED QUARTERLY DATA
+# analysis to be performed prior to expanding to monthly time series
+# Re ttm earning ex worst quarter 'ttm_earnings_max' - https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3443289
+#
+#==============================================================================
+
 qrtly_fndmntl_ts <- qrtly_fndmntl_ts %>% 
   group_by(ticker) %>% 
   mutate(
-    asset_growth  = (total_assets-lag(total_assets))/lag(total_assets),
-    roa           = slide_dbl(net_income_qtly, sum, .before = 3, .complete = TRUE) / -slide_dbl(total_assets, mean, .before = 4, .complete = TRUE),
-    roe           = slide_dbl(net_income_qtly, sum, .before = 3, .complete = TRUE) / slide_dbl(total_equity, mean, .before = 4, .complete = TRUE)
+    ttm_earnings     = slide_dbl(net_income_qtly, sum, .before = 3, .complete = TRUE),
+    ttm_earnings_max = slide_dbl(net_income_qtly, ~sum(.[. != max(.)]), .before = 3, .complete = TRUE) / 3 * 4,
+    asset_growth     = (total_assets-lag(total_assets))/lag(total_assets),
+    roa              = ttm_earnings / -slide_dbl(total_assets, mean, .before = 4, .complete = TRUE),
+    roe              = ttm_earnings / slide_dbl(total_equity, mean, .before = 4, .complete = TRUE),
+    leverage         = -total_liab / total_assets,
+    cash_ratio       = cash_equiv_st_invest / total_assets,
+    other_ca_ratio   = (total_cur_assets - cash_equiv_st_invest) / total_assets,
+    intang_ratio     = intang_asset / total_assets
     # STANDARDISED UNEXPECTED EARNINGS TO GO HERE
     # SUE denotes Standardized Unexpected Earnings, and is calculated as the change in quarterly earnings 
     # divided by from its value four quarters ago divided by the standard deviation of this change in
@@ -105,11 +229,12 @@ date_range <-
         by = "month"),
     unit = 'month') - 1
 
-# Expand dates to monthly
+
+# Expand dates to monthly periodicity
 monthly_fndmntl_ts <- qrtly_fndmntl_ts %>% 
   group_by(ticker) %>% 
   complete(date_available = date_range, ticker) %>% 
-  fill(sector:last_col()) %>% 
+  fill(valid_year:last_col()) %>% 
   filter(!is.na(sector)) %>% 
   ungroup()
 
@@ -117,8 +242,10 @@ monthly_fndmntl_ts <- qrtly_fndmntl_ts %>%
 # Add month end date to price data for join
 monthly_price_ts_raw$date_available <- ceiling_date(monthly_price_ts_raw$date_stamp, unit = 'month') - 1
 
+lbmadj <- 0.01
+ubmadj <- 20
 
-# Join price and split data
+# Join price and split data 
 monthly_fndmntl_ts <- 
   inner_join(
     x = monthly_fndmntl_ts, 
@@ -129,26 +256,28 @@ monthly_fndmntl_ts <-
     y = monthly_splits_raw, 
     by = c('date_available' = 'me_date', 'ticker' = 'symbol')
   ) %>% 
+  # Clean shares outstanding data, inferring adjustment factor based on resultant book value / mkt cap ratio
+  # If the adjustment results in a book value / mkt cap ratio between 'lbmadj' and 'umadj', use that adjustment
   mutate(
     shares_cso_fact = case_when(
-      -total_equity / (.000001 * shares_cso * close) > 0.025 & -total_equity / (.000001 * shares_cso * close) < 20 ~ .000001,
-      -total_equity / (.001 * shares_cso * close) > 0.025 & -total_equity / (.001 * shares_cso * close) < 20 ~ .001,
-      -total_equity / (1 * shares_cso * close) > 0.025 & -total_equity / (1 * shares_cso * close) < 20 ~ 1,
-      -total_equity / (1000 * shares_cso * close) > 0.025 & -total_equity / (1000 * shares_cso * close) < 20 ~ 1000,
-      -total_equity / (1000000 * shares_cso * close) > 0.025 & -total_equity / (1000000 * shares_cso * close) < 20 ~ 1000000,
+      -total_equity / (.000001 * shares_cso * close) > lbmadj & -total_equity / (.000001 * shares_cso * close) < ubmadj ~ .000001,
+      -total_equity / (.001    * shares_cso * close) > lbmadj & -total_equity / (.001    * shares_cso * close) < ubmadj ~ .001,
+      -total_equity / (1       * shares_cso * close) > lbmadj & -total_equity / (1       * shares_cso * close) < ubmadj ~ 1,
+      -total_equity / (1000    * shares_cso * close) > lbmadj & -total_equity / (1000    * shares_cso * close) < ubmadj ~ 1000,
+      -total_equity / (1000000 * shares_cso * close) > lbmadj & -total_equity / (1000000 * shares_cso * close) < ubmadj ~ 1000000,
       TRUE ~ 0
       ),
     shares_ecso_fact = case_when(
-      -total_equity / (.000001 * shares_ecso * close) > 0.025 & -total_equity / (.000001 * shares_ecso * close) < 20 ~ .000001,
-      -total_equity / (.001 * shares_ecso * close) > 0.025 & -total_equity / (.001 * shares_ecso * close) < 20 ~ .001,
-      -total_equity / (1 * shares_ecso * close) > 0.025 & -total_equity / (1 * shares_ecso * close) < 20 ~ 1,
-      -total_equity / (1000 * shares_ecso * close) > 0.025 & -total_equity / (1000 * shares_ecso * close) < 20 ~ 1000,
-      -total_equity / (1000000 * shares_ecso * close) > 0.025 & -total_equity / (1000000 * shares_ecso * close) < 20 ~ 1000000,
+      -total_equity / (.000001 * shares_ecso * close) > lbmadj & -total_equity / (.000001 * shares_ecso * close) < ubmadj ~ .000001,
+      -total_equity / (.001    * shares_ecso * close) > lbmadj & -total_equity / (.001    * shares_ecso * close) < ubmadj ~ .001,
+      -total_equity / (1       * shares_ecso * close) > lbmadj & -total_equity / (1       * shares_ecso * close) < ubmadj ~ 1,
+      -total_equity / (1000    * shares_ecso * close) > lbmadj & -total_equity / (1000    * shares_ecso * close) < ubmadj ~ 1000,
+      -total_equity / (1000000 * shares_ecso * close) > lbmadj & -total_equity / (1000000 * shares_ecso * close) < ubmadj ~ 1000000,
       TRUE ~ 0
       ),
     shares_os_unadj = round(
       case_when(
-        shares_cso_fact == 1 ~ shares_cso,
+        shares_cso_fact == 1 ~ shares_cso,  # chooses this first for PCG, when Entity (esco) is correct (larger value)
         shares_ecso_fact == 1 ~ shares_ecso,
         shares_cso_fact != 0 ~ shares_cso * shares_cso_fact,
         shares_ecso_fact != 0 ~ shares_ecso * shares_ecso_fact,
@@ -172,38 +301,125 @@ monthly_fndmntl_ts <-
     book_price       = round(-total_equity / mkt_cap, 3)
     ) %>% 
   ungroup() %>% 
+  mutate(
+    ttm_earn_yld      = round(ttm_earnings / mkt_cap, 3),
+    ttm_earn_yld_max  = round(ttm_earnings_max / mkt_cap, 3)
+    ) %>% 
   select(-date_stamp.x, -date_stamp.y) %>% 
   rename(date_stamp = date_available) %>% 
   # Filter for most recent year
   filter(year(date_stamp) == year(end_date))
 
-# Replace Inf with NA
+fnl_no_price_data <- monthly_fndmntl_ts %>% filter(year(report_date) == year(end_date)) %>% select(ticker) %>% n_distinct()
+
+
+# Replace Inf with NA and remove
 monthly_fndmntl_ts[monthly_fndmntl_ts == -Inf] <- NA
 monthly_fndmntl_ts[monthly_fndmntl_ts == Inf] <- NA
 
+monthly_fndmntl_ts <- monthly_fndmntl_ts %>%
+  select(-split_coef) %>% 
+  filter(across(.cols = everything(), .fns = ~ !is.na(.x)))
 
-# Number of stocks months having equity less than 0
-monthly_fndmntl_ts %>% filter(total_equity >= 0) %>% tally()
-neg_equity <- length(which(monthly_fndmntl_ts$total_equity >= 0))
-nas <- monthly_fndmntl_ts %>% select(-split_coef) %>% filter_all(any_vars(is.na(.)))
-
-
-# Number of stock months with NA's
-monthly_fndmntl_ts %>% select(-split_coef) %>% filter_all(any_vars(is.na(.))) %>% tally()
+fnl_remainder <- monthly_fndmntl_ts %>% filter(year(report_date) == year(end_date)) %>% select(ticker) %>% n_distinct()
 
 
-# Number of stocks with NA's
-monthly_fndmntl_ts %>% select(-split_coef) %>% filter_all(any_vars(is.na(.))) %>% select(ticker) %>% n_distinct()
 
 
-# Dataframe ex NA's
-monthly_fndmntl_exna <- monthly_fndmntl_ts %>% 
-  select(-date_stamp, -(sector:shares_ecso), -split_date,-split_coef, -shares_os_unadj, -split_adj_end1) %>% 
-  filter_all(all_vars(!is.na(.)))
+
+#==============================================================================
+# 
+# PB-ROE model
+# Robust / Theil Sen regression references 
+# https://www.jamesuanhoro.com/post/2017/09/21/theil-sen-regression-in-r/
+# https://cran.r-project.org/web/packages/mblm/mblm.pdf
+# https://education.wayne.edu/eer_dissertations/ahmad_farooqi_dissertation.pdf
+# http://extremelearning.com.au/the-siegel-and-theil-sen-non-parametric-estimators-for-linear-regression/
+#
+#==============================================================================
+ 
+# Function to extract r-squared
+get_rsq <- function(x) glance(x)$r.squared
+
+# Model
+monthly_fndmntl_ts <- monthly_fndmntl_ts %>% 
+  group_by(date_stamp, sector) %>% 
+  
+  # Remove groups with 1 stock, TS regression will error
+  filter(n() > 1) %>% 
+  
+  # Impute mean value per group - https://cran.r-project.org/web/packages/broom/vignettes/broom_and_dplyr.html
+  # TO DO - impute ROE for stocks with negative equity from ROA
+  mutate(
+    roe           = if_else(is.na(roe), mean(roe, na.rm = TRUE), roe),
+    roe           = Winsorize(roe, minval = -0.5, maxval = 0.75, na.rm = TRUE),
+    book_price    = if_else(is.na(book_price), mean(book_price, na.rm = TRUE), book_price),
+    book_price    = if_else(book_price <= 0, 0.01, book_price),
+    log_pb        = log(1/book_price),
+    log_pb        = Winsorize(log_pb, probs = c(0.01, 0.99), na.rm = TRUE)
+    ) %>% 
+  
+  # Nest for regression
+  nest() %>% 
+  mutate(
+    pbroe_rsdl_ols = map(data, ~residuals(lm(log_pb ~ roe, data = .x))),
+    fit_ols = map(data, ~lm(log_pb ~ roe, data = .x)),
+    pbroe_rsq_ols = map_dbl(fit_ols, get_rsq),
+    pbroe_rsdl_ts = map(data, ~residuals(mblm(log_pb ~ roe, data = .x, repeated = TRUE))),
+    ) %>% 
+  unnest(cols = c(data, pbroe_rsdl_ols, pbroe_rsq_ols, pbroe_rsdl_ts)) %>% 
+  select(-fit_ols) %>%
+  ungroup()
 
 
-# Descriptive stats
-data <- select(monthly_fndmntl_exna, date_stamp, asset_growth:roe, mkt_cap, book_price)
+# Example plot
+ggplot(filter(monthly_fndmntl_ts, date_stamp == as.Date('2020-05-31')), aes(x = log_pb, y = roe)) +
+  facet_wrap(~sector, ncol = 4) + 
+  geom_point()
+
+
+
+
+
+#==============================================================================
+# 
+# Visualize missingness
+#
+#==============================================================================
+
+# DF for bar plot
+stages <- tibble(
+  initial_popn = fnl_initial_popn,
+  shares_os = initial_popn - fnl_shares_os,
+  missing_qtr = shares_os - fnl_miss_qtr,
+  total_assets_equity = fnl_miss_qtr_chk,
+  no_price_data = fnl_no_price_data,
+  other = fnl_remainder
+) %>% 
+  pivot_longer(
+    cols = initial_popn:other,
+    names_to = 'stage', 
+    values_to = 'tickers'
+  ) %>% 
+  mutate(stage = as_factor(stage))
+
+# Bar plot
+ggplot(stages, aes(x = stage, y= tickers)) +
+  geom_col() +
+  geom_text(aes(label = tickers, vjust = -0.5), size = 3.5)
+
+
+
+
+
+#==============================================================================
+#
+# Descriptive statistics
+#
+#==============================================================================
+
+# Data
+data <- select(monthly_fndmntl_ts, date_stamp, cash_ratio:intang_ratio, mkt_cap:pbroe_rsdl_ts)
 
 desc_stats_func <- function(x) {
   bind_rows(
@@ -218,72 +434,70 @@ desc_stats_func <- function(x) {
 }
 
 desc_stats <- data %>% split(.$date_stamp) %>% map_dfr(., desc_stats_func, .id = 'date_stamp')
-
-
-# Missing values
-missing_1 <- monthly_fndmntl_ts %>%
-  select(-date_stamp, -(sector:shares_ecso), -split_date,-split_coef, -shares_os_unadj, -split_adj_end1) %>% 
-  mutate(across(where(is.numeric), is.na)) %>%  # replace all NA with TRUE and else FALSE
-  pivot_longer(-ticker, names_to = 'attribute') %>%  # pivot longer
-  filter(value) %>%   # remove the FALSE rows
-  select(-value) %>% 
-  group_by(ticker,attribute) %>%    # group by the ID
-  summarise(count = n()) %>% 
-  ungroup(attribute) %>% 
-  summarise(
-    missing_type = toString(attribute), 
-    records = max(count)) # convert the variable names to a string column
-
-missing_2 <- missing_1 %>% 
-  group_by(missing_type) %>% 
-  summarise(records = -sum(records), tickers = -n_distinct(ticker))
-
-start_rec <- length(monthly_fndmntl_ts$ticker)
-start_tic <- n_distinct(monthly_fndmntl_ts$ticker)
-exna_rec <- -length(monthly_fndmntl_exna$ticker) #sum(missing_2$records)
-exna_tic <- -n_distinct(monthly_fndmntl_exna$ticker) #sum(missing_2$tickers)
-missing_2 <- rbind(c('start_records', start_rec, start_tic), missing_2)
-missing_2 <- rbind(missing_2, c('end_records', exna_rec, exna_tic))
-
-# Waterfall plot
-levels <- missing_2$missing_type
   
-missing_3 <- missing_2 %>% 
-  mutate(
-    missing_type = factor(missing_type, levels = levels),
-    ymin = round(cumsum(records), 3),
-    ymax = lag(cumsum(records), default = 0),
-    xmin = c(head(missing_type, -1), NA),
-    xmax = c(tail(missing_type, -1), NA),
-    Impact = ifelse(
-      missing_type %in% c(as.character(missing_2$missing_type[1]), as.character(missing_2$missing_type[nrow(missing_2)])),'Total',
-      ifelse(records > 0, 'Increase', 'Decrease'))
+
+
+# Write to DT
+datatable(
+  select(desc_stats, date_stamp, statistic, cash_ratio:ttm_earn_yld_max, -ttm_earnings, -ttm_earnings_max),
+  #rownames = FALSE,
+  filter = 'top', 
+  options = list(
+    pageLength = 16
     )
+  )
 
-ggplot(missing_3) +
-  theme(legend.position = "none", 
-        axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
-  labs(y = "Observations", x = "Missing type", title = "Missing data") +
-  geom_rect(aes(
-    xmin = as.integer(missing_type) - .3,
-    xmax = as.integer(missing_type) + .3, 
-    ymin = ymin,
-    ymax = ymax,
-    fill = Impact), 
-    colour = "black") +
-  scale_x_discrete(limits = levels) +
-  coord_cartesian(ylim=c(-exna_rec * .95, max(missing_3$ymax) + .025))
+
+#==============================================================================
+#
+# Write to postgres database & disconnect
+#
+#==============================================================================
 
 
 
-
-xx1 <- monthly_fndmntl_ts %>% 
-  filter(ticker %in% c('AFL','AAPL','AGCL','CHDN','CRC','PCG','ARW','GRMN','SBUX','EQT','HLF','FAST','TSLA')) %>% 
-  select(
-    ticker, date_available, report_date, publish_date, shares_cso, shares_ecso, shares_os_unadj, total_equity, close, 
-    split_coef, adjusted_close, split_adj, shares_os, mkt_cap, price_book) 
+dbWriteTable(
+  conn = con, 
+  name = SQL('access_layer.fundamental_attributes'), 
+  value = monthly_fndmntl_ts, 
+  row.names = FALSE, 
+  append = TRUE
+)
 
 
 # Disconnect
 dbDisconnect(con)
 
+
+#==============================================================================
+#
+# SCRATCH
+#
+#==============================================================================
+
+prices <- monthly_price_ts_raw %>% filter(year(date_stamp) == year(end_date)) %>% distinct(symbol) 
+
+fundamental <- qrtly_fndmntl_ts_raw %>% filter(year(date_available) == year(end_date)) %>% distinct(ticker)
+fundamental <- qrtly_fndmntl_ts_raw %>% filter(valid_year == 2020, sector == '13') %>% distinct(ticker)
+
+pf <- anti_join(fundamental, prices, by = c('ticker' = 'symbol'))
+
+pf <- anti_join(prices, fundamental, by = c('symbol' = 'ticker'))
+
+library(mblm)
+regr_data <- monthly_fndmntl_ts %>% filter(date_stamp == as.Date('2020-01-31'), sector == 4) %>% select(ticker, roe, log_pb)
+
+ols_fit <- lm(log_pb ~ roe, data = regr_data)
+
+ts_fit_s <- mblm(log_pb ~ roe, dataframe = regr_data, repeated = FALSE)
+ts_fit_r <- mblm(log_pb ~ roe, dataframe = regr_data, repeated = TRUE)
+
+summary(ols_fit)
+residuals(ols_fit)
+
+summary(ts_fit_s)
+residuals(ts_fit_s)
+
+
+summary(ts_fit_r)
+residuals(ts_fit_r)

@@ -84,7 +84,9 @@ create table reference.lookup as
 
 select * from reference.ticker_cik_sic_ind
 
-drop table if exists reference.ticker_cik_sic_ind cascade;
+truncate table reference.ticker_cik_sic_ind;
+
+--drop table if exists reference.ticker_cik_sic_ind cascade;
 			
 create table reference.ticker_cik_sic_ind			
 	(

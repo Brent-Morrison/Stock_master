@@ -313,7 +313,7 @@ and uom = 'shares'
 and coreg = 'NVS'
 order by 1,4
 
-select * from edgar.num where adsh = '0001411579-19-000063' and tag = 'WeightedAverageNumberOfSharesOutstandingBasic'
+select * from edgar.num where adsh in ('0001326801-20-000013') and uom = 'shares' --tag like '%Entity%', adsh in ('0001326801-20-000013','0001326801-20-000076','0001564590-20-020502','0001564590-19-039139')
 select * from edgar.sub where cik = '1702780'
 select tag, count(distinct adsh) from edgar.num where uom = 'shares' group by 1
 
@@ -329,7 +329,7 @@ select * from alpha_vantage.shareprices_daily where symbol = 'AAPL' and "timesta
 select * from alpha_vantage.shareprices_daily where symbol = 'FAST' and "timestamp" between '2019-05-01' and '2019-05-31'
 select count(*) from alpha_vantage.shareprices_daily where symbol = 'AAT' and "timestamp" between '2016-01-01' and '2019-01-31'
 
-select * from reference.fundamental_universe where cik = 1500217
+select * from reference.fundamental_universe where cik = 1144980
 select * from reference.ticker_cik_sic_ind where cik = 1500217
 select * from edgar.edgar_fndmntl_all_tb where cik = 1500217
 
@@ -339,3 +339,59 @@ select distinct sec_qtr from edgar.num
 SELECT pg_database_size('postgres')
 SELECT pg_size_pretty(pg_database_size('postgres'))
 select pg_size_pretty(pg_table_size('stock_master.edgar.num'))
+
+
+
+select * from (
+with ind_ref as 
+	(
+		select
+		ind.ticker 
+		,lk.lookup_val4 as sector
+		,case 
+			when ind.sic::int between 6000 and 6500 then 'financial' 
+			else 'non_financial' end as fin_nonfin
+		from reference.ticker_cik_sic_ind ind
+		left join reference.lookup lk
+		on ind.simfin_industry_id = lk.lookup_ref::int
+		and lk.lookup_table = 'simfin_industries' 
+	)	
+	
+--,universe as 
+--	(	
+		select 
+			t.ticker 
+			,t.sic
+			,i.sector
+			,i.fin_nonfin
+			,t.ipo_date as start_date
+			,t.delist_date as end_date
+			,case 
+				when lag(f.valid_year) over (partition by t.ticker order by f.valid_year) is null then make_date(f.valid_year-2,1,1) 
+				else make_date(f.valid_year,1,1) 
+				end as start_year
+			,make_date(f.valid_year,12,31) as end_year
+		from 
+			reference.fundamental_universe f
+			left join reference.ticker_cik_sic_ind t
+			on f.cik = t.cik
+			left join ind_ref i
+			on t.ticker = i.ticker
+		where 
+			(i.fin_nonfin = 'financial' and f.combined_rank < 100) or
+			(i.fin_nonfin != 'financial' and f.combined_rank < 900) 
+		order by
+			t.ticker 
+			,f.valid_year
+) t1 
+where f.valid_year = 2020
+
+select * from reference.ticker_cik_sic_ind
+
+select * from reference.fundamental_universe where valid_year = 2020 and ((fin_nonfin = 'financial' and combined_rank < 100) or (fin_nonfin != 'financial' and combined_rank < 900))
+
+select * from reference.lookup where lookup_table = 'simfin_industries'
+
+select * from reference.lookup where lookup_ref = '102001'
+
+update reference.lookup set lookup_val4 = '3' where lookup_ref = '102001'

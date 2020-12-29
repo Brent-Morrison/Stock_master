@@ -89,21 +89,37 @@ with t1 as
 		-- refer to notes in edgar_structure.xlxs and 'https://www.sec.gov/corpfin/secg-accelerated-filer-and-large-accelerated-filer-definitions'
 		and sb.afs = '1-LAF'
 		-- FILTERS FOR INVESTIGATION
-		--and nm.adsh = '0000947484-17-000024'
-		--and sb.name in ('APPLE INC','ARROW ELECTRONICS INC','PG&E CORP')
+		--and nm.adsh in ('0001326801-20-000076','0001564590-20-020502','0001564590-19-039139') 
+		--and sb.name in ('FORTUNE BRANDS HOME & SECURITY, INC.','FACEBOOK INC','APPLE INC','ARROW ELECTRONICS INC','PG&E CORP')
 		--or sb.cik in (1090872,1121788)
 	)
 
 ,t11 as 
-	(
+	(	-- The mappings in edgar.lookup capture shares o/s as 'CommonStockSharesOutstanding' 
+		-- this is not always populated.  Grab 'EntityCommonStockSharesOutstanding'
 		select 
 		adsh as t11_adsh
-		,value/1000000 as l1_ecso
+		,avg(value/1000000) as l1_ecso
 		from edgar.num
 		where tag = 'EntityCommonStockSharesOutstanding' 
 		and coreg = 'NVS'
+		group by 1
 	)
 	
+,t12 as 
+	(	-- The mappings in edgar.lookup capture shares o/s as 'CommonStockSharesOutstanding' 
+		-- and that per t11 above are not always populated.  Grab 'WeightedAverageNumberOfSharesOutstandingBasic'
+		select 
+		adsh as t12_adsh
+		,ddate
+		,avg(value/1000000) as l1_wcso
+		from edgar.num
+		where tag = 'WeightedAverageNumberOfSharesOutstandingBasic'	
+		and qtrs in (1,4) -- for non-year ends the quarterly average is disclosed, for year ends only the yearly average (test case FB)
+		and coreg = 'NVS'
+		group by 1,2
+	)
+
 ,t2 as 
 	(
 		select 
@@ -123,7 +139,7 @@ with t1 as
 		,sum(case when level = '1' and L1 = 'l' 		then amount else 0 end) 	as L1_l
 		,sum(case when level = '1' and L1 = 'le' 		then amount else 0 end) 	as L1_le
 		,sum(case when level = '1' and L1 = 'cso' 		then amount else 0 end) 	as L1_cso
---		,sum(case when level = '1' and L1 = 'ecso' 		then amount else 0 end) 	as L1_ecso do not use, introduces latter date throwing partition filter in t4
+--		,sum(case when level = '1' and L1 = 'ecso' 		then amount else 0 end) 	as L1_ecso -- do not use, introduces newer date throwing partition filter in t4
 		,min(case when level = '1' and L1 = 'p' 		then amount else 0 end) 	as L1_p_cr
 		,max(case when level = '1' and L1 = 'p' 		then amount else 0 end) 	as L1_p_dr
 		,max(case when level = '2' and L2 = 'ca' 		then amount else 0 end) 	as L2_ca
@@ -175,7 +191,6 @@ with t1 as
 			else 0 end 																as total_equity
 		,case when L1_bs_chk = 0 then L1_le else 0 end 								as total_liab_equity
 		,L1_cso																		as shares_cso
---		,L1_ecso																	as shares_ecso
 		,case 
 			when qtrs = 0 then 'pit'
 			when qtrs::text = qtr or (qtrs::text = '4' and qtr = 'Y') then 'ytd_pl'
@@ -276,19 +291,20 @@ with t1 as
 		,sum(total_equity) 															as total_equity
 		,sum(net_income_qtly) 														as net_income_qtly
 		,round(sum(shares_cso),3)													as shares_cso
---		,sum(shares_ecso)															as shares_ecso
 		from t6
 		group by 1,2,3,4,5,6,7,8,9,10,11,12
 	)
 
 select 
 t7.*
-,round(t11.l1_ecso,3)																as shares_ecso
---,case when shares_os_cso = 0 then t11.l1_ecso else shares_os_cso end				as shares_os
---,greatest(shares_os_cso, t11.l1_ecso )											as shares_os
+--,round(t11.l1_ecso,3)																as shares_ecso
+,round(coalesce(t11.l1_ecso, t12.l1_wcso),3)										as shares_ecso
 from t7
 left join t11
 on t7.adsh = t11.t11_adsh
+left join t12
+on t7.adsh = t12.t12_adsh
+and t7.ddate = t12.ddate
 ;
 
 
@@ -301,6 +317,7 @@ on t7.adsh = t11.t11_adsh
 ******************************************************************************/
 
 drop table if exists edgar.edgar_fndmntl_all_tb;
+truncate edgar.edgar_fndmntl_all_tb;
 
 create table edgar.edgar_fndmntl_all_tb
 	(
@@ -347,10 +364,10 @@ alter table edgar.edgar_fndmntl_all_tb owner to postgres;
 insert into edgar.edgar_fndmntl_all_tb 
 	select * 
 	from edgar.edgar_fndmntl_all_vw
-	where sec_qtr in ('2020q2','2020q3')
+	--where sec_qtr in ('2020q2','2020q3')
 ;
 
-select * from edgar.edgar_fndmntl_all_tb where cik in (815556,1459417,771497);
+select * from edgar.edgar_fndmntl_all_tb where cik in (815556,1459417,771497,1326801);
 
 
 
@@ -370,7 +387,7 @@ select * from edgar.edgar_fndmntl_all_tb where cik in (815556,1459417,771497);
 
 -- Test	
 select * from edgar.edgar_fndmntl_fltr_fn(nonfin_cutoff => 5, fin_cutoff => 5, qrtr => '%q1')
-select * from edgar.edgar_fndmntl_fltr_fn(nonfin_cutoff => 5, fin_cutoff => 5, qrtr => null)
+select * from edgar.edgar_fndmntl_fltr_fn(nonfin_cutoff => 20, fin_cutoff =>20, qrtr => null)
 select * from edgar.edgar_fndmntl_fltr_fn(300, 2000, null, false) where cik = 1702780 order by cik, ddate
 
 -- Function
@@ -490,8 +507,8 @@ create or replace function edgar.edgar_fndmntl_fltr_fn
 ******************************************************************************/
 	
 --Test
-select * from edgar.qrtly_fndmntl_ts_vw where ticker = 'ATUS'
-	
+select * from edgar.qrtly_fndmntl_ts_vw where ticker = 'ABG'
+
 create or replace view edgar.qrtly_fndmntl_ts_vw as 
 
 with fndmntl as 
@@ -598,7 +615,8 @@ with fndmntl as
 	)
 	
 select
-	(date_trunc('quarter', publish_date) + interval '4 month - 1 day')::date as date_available
+	extract(year from universe.end_year) as valid_year
+	,(date_trunc('quarter', publish_date) + interval '4 month - 1 day')::date as date_available
 	,universe.sector
 	,universe.fin_nonfin
 	,fndmntl.*
