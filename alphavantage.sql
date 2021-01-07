@@ -65,7 +65,7 @@ alter table alpha_vantage.active_delisted owner to postgres;
 * Create view returning list of tickers for which price data update is required
 * 
 * ERRORS
-* Where cause could be entered as parameter
+* Where clause could be entered as parameter
 * 
 ******************************************************************************/
 

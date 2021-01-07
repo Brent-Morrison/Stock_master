@@ -38,8 +38,8 @@ df_raw = pd.read_sql(
             where symbol in ('AKRX','CMA','A','AAPL','C')
         """,
     con=conn,
-    index_col='timestamp',
-    parse_dates={'timestamp': {'format': '%Y-%m-%d'}}
+    index_col='date_stamp',
+    parse_dates={'date_stamp': {'format': '%Y-%m-%d'}}
     )
 
 

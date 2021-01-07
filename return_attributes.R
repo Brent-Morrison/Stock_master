@@ -117,7 +117,9 @@ ipc_by_grp <- function(df) {
 
 
 #==============================================================================
+#
 # Daily stock data 
+#
 #==============================================================================
 
 daily <- df_raw %>% 
@@ -181,7 +183,15 @@ monthly1 <- daily %>%
   left_join(group_by(df_raw, symbol) %>% summarise(sector = mean(as.numeric(sector))), by = 'symbol')
 
 
+
+
+
+#==============================================================================
+#
 # Calculate & join SUV and IPC
+#
+#==============================================================================
+
 
 # Derive Standardised Unexplained Volume
 suv_df <- daily %>% 
@@ -288,7 +298,15 @@ xxx %>% select(-fwd_rtn_1m) %>% filter_all(any_vars(is.na(.))) %>% tally()
 monthly <- monthly %>% drop_na() %>% as.data.frame(monthly)
 
 
+
+
+
+#==============================================================================
+#
 # Write to postgres database
+#
+#==============================================================================
+
 dbWriteTable(
   conn = con, 
   name = SQL('access_layer.return_attributes'), 

@@ -29,8 +29,8 @@ from zipfile import ZipFile
 # Prior quarters
 start_year = 2020
 end_year = 2020
-start_qtr = 2
-end_qtr = 3
+start_qtr = 4
+end_qtr = 4
 
 base_url = 'https://www.sec.gov/files/dera/data/financial-statement-data-sets/'
 url_list = [base_url+str(y)+'q'+str(q)+'.zip' 
@@ -39,8 +39,9 @@ url_list = [base_url+str(y)+'q'+str(q)+'.zip'
 
 
 # Connect to postgres database
+# ?gssencmode=disable' per https://stackoverflow.com/questions/59190010/psycopg2-operationalerror-fatal-unsupported-frontend-protocol-1234-5679-serve
 engine = create_engine('postgresql://postgres:'+password+
-                        '@localhost:5432/stock_master')
+                        '@localhost:5432/stock_master?gssencmode=disable')
 conn = engine.connect()
 meta = MetaData(engine)
 meta.reflect(schema='edgar')

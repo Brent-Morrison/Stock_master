@@ -9,12 +9,13 @@ select * from alpha_vantage.shareprices_daily where symbol = 'AIG' and "timestam
 
 select * from alpha_vantage.ticker_excl
 
-delete from alpha_vantage.ticker_excl where status = 'failed_no_data'
+delete from alpha_vantage.ticker_excl where status = 'failed_no_data' and last_date_in_db = '2020-11-03'  --ticker in ('ZBRA','ZG','ZION','ZNGA','ZTS')  --last_date_in_db = '2020-11-02'
 
+select * from alpha_vantage.tickers_to_update 
+where symbol not in (select ticker from alpha_vantage.ticker_excl)
+and last_date_in_db != '2020-12-31'
 
-
-
-
+select stmt, tag, count(*) from edgar.pre where tag like('%epreciat%') group by 1,2
 
 /******************************************************************************
 * 
@@ -61,8 +62,9 @@ ticker
 ,min(date) as min_date
 ,max(date) as max_date
 ,count(*) 
-from simfin.us_shareprices_daily
-where ticker = 'AAT'
+select * from simfin.us_shareprices_daily
+where 1=1
+and ticker = 'AAPL'
 group by 1
 order by 1;
 
@@ -74,7 +76,8 @@ symbol
 ,max(timestamp) as max_date
 ,count(*) as records
 from alpha_vantage.shareprices_daily 
-where symbol = 'AAT'
+where 1 = 1
+and symbol = 'AAPL'
 group by symbol
 order by symbol
 
@@ -395,3 +398,9 @@ select * from reference.lookup where lookup_table = 'simfin_industries'
 select * from reference.lookup where lookup_ref = '102001'
 
 update reference.lookup set lookup_val4 = '3' where lookup_ref = '102001'
+
+select * 
+from alpha_vantage.daily_price_ts_vw 
+where symbol in ('AKRX','CMA','A','AAPL','C')
+
+select * from alpha_vantage.monthly_price_ts_vw where symbol = 'AAPL'

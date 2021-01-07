@@ -37,6 +37,7 @@ library(tidyr)
 library(purrr)
 library(broom)
 library(mblm)
+library(reticulate)
 library(DescTools)
 library(naniar)
 library(moments)
@@ -69,7 +70,7 @@ con <- dbConnect(
 
 
 # Parameters and query string, dates to be formatted as character string
-end_date <- '2020-10-31'
+end_date <- '2020-12-31'
 start_date <- paste(
   year(as.Date(end_date) - years(2)), 
   sprintf('%02d', month(as.Date(end_date) %m-% months(3))), 
@@ -225,7 +226,8 @@ qrtly_fndmntl_ts <- qrtly_fndmntl_ts %>%
 date_range <- 
   ceiling_date(
     seq(min(floor_date(qrtly_fndmntl_ts$date_available, unit = 'month')), 
-        max(floor_date(qrtly_fndmntl_ts$date_available, unit = 'month')), 
+        as.Date(end_date),
+        #max(floor_date(qrtly_fndmntl_ts$date_available, unit = 'month')),
         by = "month"),
     unit = 'month') - 1
 
@@ -372,11 +374,52 @@ monthly_fndmntl_ts <- monthly_fndmntl_ts %>%
   ungroup()
 
 
-# Example plot
-ggplot(filter(monthly_fndmntl_ts, date_stamp == as.Date('2020-05-31')), aes(x = log_pb, y = roe)) +
+# Plot log_pb against roe 
+monthly_fndmntl_ts %>% 
+  filter(date_stamp == as.Date('2020-07-31')) %>% 
+  ggplot(aes(x = log_pb, y = roe)) +
   facet_wrap(~sector, ncol = 4) + 
-  geom_point()
+  geom_point() 
+  # Add TS regression line of fit via 
+  # geom_abline(intercept = 0, slope = 1, alpha = .2) +
 
+
+# Plot actual log_pb against predicted log_pb - Theil Sen
+monthly_fndmntl_ts %>% 
+  filter(date_stamp > as.Date('2020-06-30'), fin_nonfin == 'non_financial', sector %in% c(3,4,7)) %>% 
+  mutate(
+    actual     = log_pb,
+    prediction = actual + pbroe_rsdl_ts
+    ) %>% 
+  ggplot(aes(x = actual, y = prediction)) +
+  geom_abline(intercept = 0, slope = 1, alpha = .2) +
+  geom_point() +
+  facet_grid(rows = vars(date_stamp), cols = vars(sector)) +
+  labs(
+    title = 'Actual versus predicted log book / price ratio',
+    subtitle = 'Prediction derived from PB-ROE model applied at sector level using Theil Sen estimator',
+    caption = 'A negative residual has the predicted or modeled log(bp) ratio lower than the actual log(bp) ratio.\nSince a lower log(pb) ratio represents a higher valuation, this indicates the model considers the stock should \nbe valued higher than the it is. Therefore the stock is considered undervalued.'
+    ) +
+  theme(plot.caption = element_text(size = 8, margin = margin(t = 10), color = "grey", hjust = 0))
+
+
+# Plot actual log_pb against predicted log_pb - OLS
+monthly_fndmntl_ts %>% 
+  filter(date_stamp > as.Date('2020-06-30'), fin_nonfin == 'non_financial', sector %in% c(3,4,7)) %>% 
+  mutate(
+    actual     = log_pb,
+    prediction = actual + pbroe_rsdl_ols
+  ) %>% 
+  ggplot(aes(x = actual, y = prediction)) +
+  geom_abline(intercept = 0, slope = 1, alpha = .2) +
+  geom_point() +
+  facet_grid(rows = vars(date_stamp), cols = vars(sector)) +
+  labs(
+    title = 'Actual versus predicted log book / price ratio',
+    subtitle = 'Prediction derived from PB-ROE model applied at sector level using OLS estimator',
+    caption = 'A negative residual has the predicted or modeled log(bp) ratio lower than the actual log(bp) ratio.\nSince a lower log(pb) ratio represents a higher valuation, this indicates the model considers the stock should \nbe valued higher than the it is. Therefore the stock is considered undervalued.'
+  ) +
+  theme(plot.caption = element_text(size = 8, margin = margin(t = 10), color = "grey", hjust = 0))
 
 
 
@@ -430,7 +473,7 @@ desc_stats_func <- function(x) {
     x %>% summarise(across(where(is.numeric), ~ kurtosis(.x, na.rm = TRUE))),
     x %>% summarise(across(where(is.numeric), ~ quantile(.x, probs = c(0,.02,.05,.1,.25,.5,.75,.9,.95,.98,1), na.rm = TRUE)))
   ) %>% round(3) %>% 
-  mutate(statistic = c('count','mean','sd','skew','kurt','min','qtl02','qtl05','qtl10','q1','med','q3','qtl090','qtl095','qtl098','max'))
+  mutate(statistic = c('count','mean','sd','skew','kurt','min','qtl02','qtl05','qtl10','q1','med','q3','qtl90','qtl95','qtl98','max'))
 }
 
 desc_stats <- data %>% split(.$date_stamp) %>% map_dfr(., desc_stats_func, .id = 'date_stamp')
@@ -469,35 +512,87 @@ dbWriteTable(
 dbDisconnect(con)
 
 
+
+
+
 #==============================================================================
 #
 # SCRATCH
 #
 #==============================================================================
 
-prices <- monthly_price_ts_raw %>% filter(year(date_stamp) == year(end_date)) %>% distinct(symbol) 
-
-fundamental <- qrtly_fndmntl_ts_raw %>% filter(year(date_available) == year(end_date)) %>% distinct(ticker)
-fundamental <- qrtly_fndmntl_ts_raw %>% filter(valid_year == 2020, sector == '13') %>% distinct(ticker)
-
-pf <- anti_join(fundamental, prices, by = c('ticker' = 'symbol'))
-
-pf <- anti_join(prices, fundamental, by = c('symbol' = 'ticker'))
-
-library(mblm)
-regr_data <- monthly_fndmntl_ts %>% filter(date_stamp == as.Date('2020-01-31'), sector == 4) %>% select(ticker, roe, log_pb)
-
-ols_fit <- lm(log_pb ~ roe, data = regr_data)
-
-ts_fit_s <- mblm(log_pb ~ roe, dataframe = regr_data, repeated = FALSE)
-ts_fit_r <- mblm(log_pb ~ roe, dataframe = regr_data, repeated = TRUE)
-
-summary(ols_fit)
-residuals(ols_fit)
-
-summary(ts_fit_s)
-residuals(ts_fit_s)
+# Reticulate for multivariate Thiel Sen regression
+use_condaenv(condaenv = 'STOCK_MASTER', required = TRUE)
+source_python('C:/Users/brent/Documents/VS_Code/postgres/postgres/ts_regression.py')
 
 
-summary(ts_fit_r)
-residuals(ts_fit_r)
+ts_data <- monthly_fndmntl_ts %>% 
+  filter(date_stamp > as.Date('2020-06-30'), fin_nonfin == 'non_financial', sector %in% c(3,4,7)) %>% 
+  mutate(
+    total_cur_liab_abs        = -total_cur_liab,
+    lt_debt_abs               = -lt_debt,
+    non_cash_cur_assets       = total_cur_assets - cash_equiv_st_invest,
+    other_noncur_liab_abs     = -(total_noncur_liab - lt_debt),
+    total_equity_abs          = -total_equity,
+    ttm_earnings_abs          = -ttm_earnings
+    ) %>% 
+  select(
+    date_stamp, sector, ticker, mkt_cap,
+    cash_equiv_st_invest, non_cash_cur_assets, total_noncur_assets, 
+    total_cur_liab_abs, lt_debt_abs, other_noncur_liab_abs, total_equity_abs, ttm_earnings_abs
+    )
+
+
+# Excluding the '.id' argument to map_dfr results in the date_stamp being returned from python/pandas 
+# as a list.  This is not usable in the data frame.
+# Including the '.id' argument as below requires converting this back to date per the 'mutate'
+# TO DO: LIMIT PREDICTION TO ZERO AND 110% OF THE MAX MKT CAP
+ts_pred <- ts_data %>% 
+  split(list(.$date_stamp,.$sector)) %>% 
+  map_dfr(., theil_sen_py, .id = 'date_stamp', iter = as.integer(100)) %>% 
+  mutate(
+    date_stamp = as.Date(substr(date_stamp, 1, 10)),
+    actual = prediction + residual
+    )
+
+
+# Summary scores
+ts_scores <- ts_pred %>% 
+  group_by(date_stamp, sector) %>% 
+  nest() %>% 
+  mutate(
+    fit = map(data, ~lm(actual ~ prediction, data = .x)), 
+    rsq = map_dbl(fit, get_rsq)
+    ) %>% 
+  unnest(cols = c(data, rsq)) %>% 
+  select(-fit) %>% 
+  summarise(
+    median_mkt_cap = median(actual),
+    max_mkt_cap = max(actual),
+    min_mkt_cap = min(actual),
+    median_pred = median(prediction),
+    max_pred = max(prediction),
+    min_pred = min(prediction),
+    median_rsdl = median(residual),
+    rsq = mean(rsq)
+  ) %>% 
+  ungroup() %>% 
+  mutate(across(3:7, round, 0)) %>% 
+  mutate(across(8, round, 2))
+
+
+
+# Plot actual vs predicted 
+ts_pred %>% 
+  mutate(actual = prediction + residual) %>% 
+  ggplot(aes(x = log(actual), y = log(prediction))) +
+  geom_abline(intercept = 0, slope = 1, alpha = .2) +
+  geom_point() +
+  facet_grid(rows = vars(date_stamp), cols = vars(sector))
+
+
+
+
+residuals(lm(mkt_cap ~ ., data = select(zdf, -ticker)))
+
+write.csv(ts_df, 'ts_test.csv')

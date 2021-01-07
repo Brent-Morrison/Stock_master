@@ -364,7 +364,7 @@ alter table edgar.edgar_fndmntl_all_tb owner to postgres;
 insert into edgar.edgar_fndmntl_all_tb 
 	select * 
 	from edgar.edgar_fndmntl_all_vw
-	--where sec_qtr in ('2020q2','2020q3')
+	where sec_qtr = '2020q4'
 ;
 
 select * from edgar.edgar_fndmntl_all_tb where cik in (815556,1459417,771497,1326801);
