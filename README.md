@@ -22,6 +22,12 @@ The "universe" of stocks for which analysis is performed is determined with fund
 
 ## Development / random ideas
 1. Price return modeling
+    1. Survival analysis assessing risk of drawdown - [link](https://lib.bsu.edu/beneficencepress/mathexchange/06-01/jiayi.pdf)
 2. Dimensionality reduction of returns at portfolio level
     1. PCA
     2. Autoencoders?
+3. Historical earnings dates for PEAD calculation - [link](https://www.alphavantage.co/documentation/#earnings)
+4. Default risk as return predictor
+    1. Merton for Dummies: A Flexible Way of Modelling Default Risk - [link](https://econpapers.repec.org/paper/utsrpaper/112.htm)
+    2. In Search of Distress Risk - [link](https://scholar.harvard.edu/files/campbell/files/campbellhilscherszilagyi_jf2008.pdf)
+5. [LPPLS](https://github.com/Boulder-Investment-Technologies/lppls), see also - [link](https://youtu.be/6x4-GcIFDlM)
