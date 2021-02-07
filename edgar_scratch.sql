@@ -334,7 +334,7 @@ select count(*) from alpha_vantage.shareprices_daily where symbol = 'AAT' and "t
 
 select * from reference.fundamental_universe where cik = 1144980
 select * from reference.ticker_cik_sic_ind where cik = 1500217
-select * from edgar.edgar_fndmntl_all_tb where cik = 1500217
+select * from edgar.edgar_fndmntl_all_tb where (shares_cso > 0 and shares_cso < 10) and (shares_ecso > 0 and shares_ecso < 10)
 
 select * from alpha_vantage.tickers_to_update where symbol not in (select ticker from alpha_vantage.ticker_excl)
 delete from alpha_vantage.ticker_excl where status = 'failed_no_data'

@@ -4,6 +4,7 @@
 # - Add logic to do nothing when there is no new data, eg ZAYO 
 #
 # SQL write performance enhancements
+# - https://naysan.ca/2020/06/21/pandas-to-postgresql-using-psycopg2-copy_from/
 # - https://hakibenita.com/fast-load-data-python-postgresql
 # - https://stackoverflow.com/questions/23103962/how-to-write-dataframe-to-postgres-table/47984180#47984180
 #
@@ -23,12 +24,13 @@ import yfinance as yf
 password = ''
 apikey = ''
 wait_seconds = 20                               # Wait time before pinging AV server
-update_to_date = dt.datetime(2020,10,30).date() # If the last date in the database is this date, do nothing
+update_to_date = dt.datetime(2020,12,31).date() # If the last date in the database is this date, do nothing
 batch_size = 350                                # Number of tickers to process per batch
 
 # Connect to postgres database
+# ?gssencmode=disable' per https://stackoverflow.com/questions/59190010/psycopg2-operationalerror-fatal-unsupported-frontend-protocol-1234-5679-serve
 engine = create_engine('postgresql://postgres:'+password+
-                        '@localhost:5432/stock_master')
+                        '@localhost:5432/stock_master?gssencmode=disable')
 conn = engine.connect()
 meta = MetaData(engine)
 meta.reflect(schema='alpha_vantage')
@@ -249,6 +251,9 @@ max_date = pd.read_sql(sql=text(
 
 # Convert max_date to list
 #max_date = max_date['max'].tolist()
+
+# Convert datetime to date
+df_sp500['timestamp'] = pd.to_datetime(df_sp500['timestamp']).dt.date
 
 # Return only data post existing date
 df_sp500 = df_sp500[df_sp500['timestamp'] > max_date['max'][0]].copy()
