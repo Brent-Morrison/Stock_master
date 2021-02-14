@@ -1,5 +1,38 @@
 /******************************************************************************
 * 
+* alpha_vantage.earnings
+* 
+* DESCRIPTION: 
+* Make table for earnings / eps data from alphavantage
+* Updated from script in "alphavantage_import.py"
+* 
+* 
+******************************************************************************/
+
+drop table if exists alpha_vantage.earnings cascade;
+
+select * from alpha_vantage.earnings
+
+create table alpha_vantage.earnings			
+	(		
+		symbol             text
+		,date_stamp        date
+		,report_date       date
+		,reported_eps      numeric
+		,estimated_eps     numeric
+		,eps_surprise      numeric
+		,eps_surprise_perc numeric
+		,capture_date      date
+	);		
+			
+alter table alpha_vantage.earnings owner to postgres;
+
+
+
+
+
+/******************************************************************************
+* 
 * alpha_vantage.ticker_excl
 * 
 * DESCRIPTION: 
@@ -75,8 +108,9 @@ create or replace view alpha_vantage.tickers_to_update as
 
 	select 
 		rfnc.ticker as symbol
-		,max(av.max_date) as last_date_in_db
-		,max(av.adjusted_close) as last_adj_close
+		,av.max_date as last_date_in_db
+		,av.adjusted_close as last_adj_close
+		,eps.max_date as last_eps_date
 	from 
 		(
 			select 
@@ -99,8 +133,15 @@ create or replace view alpha_vantage.tickers_to_update as
 			,timestamp desc
 		) av
 	on rfnc.ticker = av.symbol
-	--where rfnc.ticker not in (select distinct ticker from alpha_vantage.ticker_excl) 
-	group by 1
+	left join
+		(
+			select 
+			symbol
+			,max(date_stamp) as max_date
+			from alpha_vantage.earnings
+			group by 1
+		) eps
+	on rfnc.ticker = eps.symbol
 ;
 
 

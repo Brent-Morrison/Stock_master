@@ -9,15 +9,20 @@
 #    Efficacy per https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3212934
 # 2. Change set-up so script takes year as a parameter and outputs results for that year,
 #    ensure burn-in data is collected
+# 3. Function dropna() at last step will remove all forward return vlues and hence the last month of data. 
+#    Require functionality to latest months records from DB (those with NA fwd returns) and re-insert
+# 4. Add deciles for SUV
 #
 #==============================================================================
 
 start_time <- Sys.time()
 
 # Parameters
-end_date <- '2018-12-31'          # Latest date of available data (character string for SQL)
-write_to_db <- FALSE               # Boolean - write results to database
-months_to_load = 12                # months prior to start date to load to DB (NOT IN USE)
+end_date <- '2019-12-31'          # Latest date of available data (character string for SQL)
+months_to_load = 12               # Months prior to start date to load to DB
+month_to_delete = 0               # Months to delete from DB in order to remove NA's as a result of fwd returns (0 = last months data only, 9 to not run function)
+write_to_db <- TRUE               # Boolean - write results to database
+disconnect <- FALSE               # Disconnect from DB
 
 
 # Packages
@@ -34,7 +39,6 @@ library(tidyr)
 library(purrr)
 library(forcats)
 library(ggplot2)
-library(ggridges)
 library(lubridate)
 library(DBI)
 library(RPostgres)
@@ -50,14 +54,16 @@ library(RPostgres)
 #==============================================================================
 
 # Connect to postgres database
-con <- dbConnect(
-  RPostgres::Postgres(),
-  host      = 'localhost',
-  port      = '5432',
-  dbname    = 'stock_master',
-  user      = rstudioapi::askForPassword("User"),
-  password  = rstudioapi::askForPassword("Password")
-)
+if (!exists('con')) {
+  con <- dbConnect(
+    RPostgres::Postgres(),
+    host      = 'localhost',
+    port      = '5432',
+    dbname    = 'stock_master',
+    user      = rstudioapi::askForPassword("User"),
+    password  = rstudioapi::askForPassword("Password")
+    )
+}
 
 
 # Parameters and query string
@@ -74,6 +80,25 @@ sql1 <- sqlInterpolate(conn = con, sql = sql1, start_date = start_date, end_date
 qry1 <- dbSendQuery(conn = con, statement = sql1) 
 df_raw <- dbFetch(qry1)
 
+# Workflow to delete months with forward returns as NA's
+if (month_to_delete != 9) {
+  sql2 <- "select max(date_stamp) as max_date from access_layer.return_attributes"
+  sql2 <- sqlInterpolate(conn = con, sql = sql2)
+  qry2 <- dbSendQuery(conn = con, statement = sql2) 
+  max_db_date <- dbFetch(qry2)
+  max_db_date <- as.Date(max_db_date[1,1])
+  first_delete_month <- max_db_date %m-% months(month_to_delete)
+  # As string
+  first_delete_month <- paste(
+    year(as.Date(first_delete_month)), 
+    sprintf('%02d', month(as.Date(first_delete_month))), 
+    day(as.Date(first_delete_month)), 
+    sep = '-')
+  
+  sql3 <- "delete from access_layer.return_attributes where date_stamp >= ?first_delete_month"
+  sql3 <- sqlInterpolate(conn = con, sql = sql3, first_delete_month = first_delete_month)
+  qry3 <- dbSendQuery(conn = con, statement = sql3) 
+}
 
 
 
@@ -302,8 +327,12 @@ monthly <- filter(monthly, date_stamp > as.Date(end_date) %m-% months(months_to_
 na_count <- monthly %>% select(-fwd_rtn_1m) %>% filter_all(any_vars(is.na(.))) %>% tally()
 
 
-# Convert to data frame for upload to database
-monthly <- monthly %>% drop_na() %>% as.data.frame(monthly)
+# Convert to data frame for upload to database (drop NA's except fwd return)
+comp_case_param <- match('fwd_rtn_1m', names(monthly1))
+#monthly <- monthly %>% drop_na() %>% as.data.frame(monthly)
+monthly <- monthly %>% filter(complete.cases(.[,-comp_case_param])) %>% as.data.frame(monthly)
+
+
 
 
 
@@ -316,59 +345,28 @@ monthly <- monthly %>% drop_na() %>% as.data.frame(monthly)
 #==============================================================================
 
 # Filter & select prior to DB load
-monthly <- monthly %>% 
-  select()
+#monthly <- monthly %>% 
+#  select()
 
 
 
-if (write_to_db) dbWriteTable(
+if (write_to_db) {
+  dbWriteTable(
   conn = con, 
   name = SQL('access_layer.return_attributes'), 
   value = monthly, 
   row.names = FALSE, 
   append = TRUE
   )
+}
 
 
 # Disconnect
-dbDisconnect(con)
+if (disconnect) {
+  dbDisconnect(con)
+}
 
 
 end_time <- Sys.time()
 
 execution_time <- end_time - start_time
-
-
-
-
-
-
-
-#### TEST ####
-# dfm_smax <- dfm %>% drop_na() %>% 
-#   group_by(rtn_ari_12m_dcl) %>% 
-#   summarise(avg = mean(rtn_ari_12m), fwd_rtn_1m = mean(fwd_rtn_1m, na.rm = TRUE))
-
-# ggridges
-# https://cmdlinetips.com/2018/03/how-to-plot-ridgeline-plots-in-r/
-# dfm %>% drop_na() %>% 
-#   select(date_stamp, kurt_ari_120d_dcl, fwd_rtn_1m) %>% 
-#   filter(kurt_ari_120d_dcl %in% c(1, 10)) %>% 
-#   mutate(kurt_ari_120d_dcl = as.factor(kurt_ari_120d_dcl),
-#          date_stamp        = fct_rev(as.factor(date_stamp))) %>% 
-#   ggplot(aes(
-#     x = fwd_rtn_1m, 
-#     y = date_stamp, 
-#     fill = kurt_ari_120d_dcl
-#   )) + 
-#   geom_density_ridges(
-#     alpha = .6, 
-#     color = 'white', 
-#     from = -.6, 
-#     to = .6, 
-#     panel_scaling = FALSE
-#   )
-# 
-# 
-# # Scratch
-# tge <- df_raw %>% filter(symbol == 'TGE')

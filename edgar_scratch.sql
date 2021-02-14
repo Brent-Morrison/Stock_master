@@ -7,6 +7,8 @@
 
 select * from alpha_vantage.shareprices_daily where symbol = 'AIG' and "timestamp" between '2019-01-01' and '2019-01-31'
 
+select symbol, max("timestamp") as max_date from alpha_vantage.shareprices_daily group by 1 order by 2 desc
+
 select * from alpha_vantage.ticker_excl
 
 delete from alpha_vantage.ticker_excl where status = 'failed_no_data' and last_date_in_db = '2020-11-03'  --ticker in ('ZBRA','ZG','ZION','ZNGA','ZTS')  --last_date_in_db = '2020-11-02'
@@ -399,8 +401,11 @@ select * from reference.lookup where lookup_ref = '102001'
 
 update reference.lookup set lookup_val4 = '3' where lookup_ref = '102001'
 
-select * 
-from alpha_vantage.daily_price_ts_vw 
-where symbol in ('AKRX','CMA','A','AAPL','C')
+select extract(year from date_stamp) as year, symbol, count(*) from access_layer.return_attributes group by 1,2
+select date_stamp, count(*) from access_layer.return_attributes group by 1
+select * from alpha_vantage.daily_price_ts_vw where date_stamp >= '2019-01-01' and date_stamp <= '2019-12-31' and symbol = 'A'
+select max(date_stamp) as max_date from access_layer.return_attributes where fwd_rtn_1m is null group by 1
+delete from access_layer.return_attributes where date_stamp >= 
 
-select * from alpha_vantage.monthly_price_ts_vw where symbol = 'AAPL'
+select * from alpha_vantage.earnings
+select distinct (symbol) from alpha_vantage.earnings
