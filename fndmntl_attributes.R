@@ -113,7 +113,7 @@ monthly_splits_raw <- dbFetch(qry3)
 #==============================================================================
 # 
 # CHECK MISSINGNESS
-# missing defined as nil or NA cash, total assets, total equity, net income,
+# Missing defined as nil or NA cash, total assets, total equity, net income,
 # shares outstanding or non-continuous data (ie., missing quarter)
 #
 #==============================================================================
@@ -301,6 +301,8 @@ monthly_fndmntl_ts <-
     #  ), 2)
     ) %>% 
   group_by(ticker) %>% 
+  
+  # DOCUMENT THE LOGIC BELOW
   mutate(
     split_adj_start  = if_else(!is.na(split_coef), 1, 0),
     split_adj_end1   = if_else(cumsum(replace_na(split_adj_start, 0)) > 0 & 
@@ -409,7 +411,7 @@ use_condaenv(condaenv = 'STOCK_MASTER', required = TRUE)
 source_python('C:/Users/brent/Documents/VS_Code/postgres/postgres/ts_regression.py')
 
 
-# Non-financial data
+# Regression inputs - Non-financial data
 tsreg_data <- monthly_fndmntl_ts %>% 
   filter(date_stamp > as.Date(end_date) %m-% months(ts_prior_months), sector != 5) %>% 
   mutate(
@@ -427,7 +429,7 @@ tsreg_data <- monthly_fndmntl_ts %>%
   )
 
 
-# Financial data (note the different attributes used for model)
+# Regression inputs - Financial data (note the different attributes used for model)
 tsreg_data_fin <- monthly_fndmntl_ts %>% 
   filter(date_stamp > as.Date(end_date) %m-% months(ts_prior_months), sector == 5) %>% 
   mutate(
@@ -482,8 +484,8 @@ monthly_fndmntl_ts <-
 
 
 # Aggregate valuation measure per http://www.econ.yale.edu/~shiller/behfin/2013_04-10/asness-frazzini-pedersen.pdf
-# "Rank and" n order to put each measure on equal footing and combine them, each month we convert each variable 
-# into ranks and standardize to obtain a z-score.  The average of the individual z-scores is then computed.
+# "In order to put each measure on equal footing and combine them, each month we convert each variable 
+# into ranks and standardize to obtain a z-score.  The average of the individual z-scores is then computed."
 # Low (cheap) values stocks will be in decile 1.
 monthly_fndmntl_ts <- monthly_fndmntl_ts %>% 
   group_by(date_stamp, sector) %>% 

@@ -85,6 +85,21 @@ order by symbol
 
 ---------------------------------------------
 
+select 
+symbol
+,capture_date 
+,min(timestamp) as min_date
+,max(timestamp) as max_date
+,count(*) as records
+from alpha_vantage.shareprices_daily 
+where 1 = 1
+and symbol = 'AAPL'
+group by 1,2
+order by 1,2
+
+
+---------------------------------------------
+
 select max(timestamp) from alpha_vantage.shareprices_daily where symbol = 'GSPC'
 
 ---------------------------------------------
@@ -174,7 +189,7 @@ show data_directory;
 
 select * from alpha_vantage.shareprices_daily where symbol is null -- order by "timestamp" desc
 
-select * from alpha_vantage.shareprices_daily where symbol = 'TEVA' order by "timestamp" desc 
+select * from alpha_vantage.shareprices_daily where symbol = 'AAPL' order by "timestamp" desc 
 
 --delete from alpha_vantage.shareprices_daily where symbol = 'SHP' and "timestamp" = '2020-06-18'
 
@@ -405,7 +420,74 @@ select extract(year from date_stamp) as year, symbol, count(*) from access_layer
 select date_stamp, count(*) from access_layer.return_attributes group by 1
 select * from alpha_vantage.daily_price_ts_vw where date_stamp >= '2019-01-01' and date_stamp <= '2019-12-31' and symbol = 'A'
 select max(date_stamp) as max_date from access_layer.return_attributes where fwd_rtn_1m is null group by 1
-delete from access_layer.return_attributes where date_stamp >= 
+select date_stamp, count(*) from access_layer.return_attributes group by 1
 
-select * from alpha_vantage.earnings
-select distinct (symbol) from alpha_vantage.earnings
+select * from alpha_vantage.earnings where symbol = 'ARW' and date_stamp = '2020-11-23'
+select symbol, count(*) as records from alpha_vantage.earnings group by 1 order by 1
+
+select 
+rtn_ari_12m_dcl 
+,round(avg(rtn_ari_12m),2) as factor_rtn
+,round(avg(fwd_rtn_1m),4) as fwd_rtn_1m 
+from access_layer.return_attributes 
+group by 1
+order by 1
+
+
+
+select * from (
+select fu.*, lag(combined_rank) over (partition by cik order by valid_year) as rank_lag
+from reference.fundamental_universe fu
+) t1
+where rank_lag > 900 and combined_rank < 900
+
+
+
+
+
+
+
+
+
+
+-- DOLLAR VOLUME UNIVERSE
+select
+t2.*
+,rank() over (partition by year_date order by dollar_volume desc) as dollar_volume_rank
+from (
+	select 
+	symbol
+	,year_date
+	,count(year_mon) as month_active_count
+	,sum(dollar_volume) as dollar_volume
+	from (
+		select 
+			symbol
+			,extract(year from date_stamp) as year_date
+			,extract(year from date_stamp)||'_'||extract(month from date_stamp) as year_mon
+			,round(sum(volume * "close")/1e6, 2) as dollar_volume
+		from 
+			(
+			select 
+			"timestamp" as date_stamp
+			,symbol
+			,"close"
+			,volume
+			from 
+				(	-- Capture most recent version of price data (i.e., split & dividend adjusted)
+					select 
+					sd.* 
+					,row_number() over (partition by "timestamp", symbol order by capture_date desc) as row_num
+					from alpha_vantage.shareprices_daily sd 
+					where "timestamp" <= '2011-12-31' 
+					and symbol != 'GSPC'
+				) t1
+			) dpts 
+		group by 1,2,3
+	) t1
+	group by 1,2
+	having count(year_mon) = 12
+) t2
+order by 2,5
+
+

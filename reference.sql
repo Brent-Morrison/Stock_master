@@ -101,6 +101,7 @@ create table reference.ticker_cik_sic_ind
 	);		
 			
 alter table reference.ticker_cik_sic_ind owner to postgres;
+
 alter table reference.ticker_cik_sic_ind add primary key (ticker, cik);
 
 copy reference.ticker_cik_sic_ind		
@@ -169,7 +170,7 @@ create or replace view reference.universe_time_series_vw as
 with months as 
 	(
 		select month_start::date - 1 as month_end
-		from generate_series('2008-03-01'::date, now()::date, '1 month'::interval) as month_start
+		from generate_series('2000-01-01'::date, now()::date, '1 month'::interval) as month_start
 	)
 
 ,fund_univ as 
@@ -186,18 +187,227 @@ select
 	fund_univ.cik
 	,tickers.ticker
 	,months.month_end
-	--,ipo_date
-	--,delist_date
+	,ipo_date
+	,delist_date
+	,case 
+		when lag(fund_univ.valid_year) 
+			over (partition by tickers.ticker order by fund_univ.valid_year) is null 
+			then make_date(fund_univ.valid_year-2,1,1) 
+		else make_date(fund_univ.valid_year,1,1) 
+		end as start_year
+	,make_date(fund_univ.valid_year,12,31) as end_year
 from 
 	fund_univ 
 	cross join months
 	left join tickers
 	on fund_univ.cik = tickers.cik
 where 
-	extract(year from months.month_end) = fund_univ.valid_year
-	and (	(combined_rank <= 900 and fin_nonfin = 'non_financial'	)
-		 or (combined_rank <= 100 and fin_nonfin = 'financial')	)
-	and months.month_end between ipo_date and delist_date
+	(	   
+			(combined_rank <= 900 and fin_nonfin = 'non_financial'	)
+	 	or 	(combined_rank <= 100 and fin_nonfin = 'financial'      )	
+	 )
+	and months.month_end between tickers.ipo_date and tickers.delist_date
+	and months.month_end between start_date and end_date
+	and months.month_end between start_year and end_year
 order by 
-	cik, month_end
+	ticker, month_end
+;
+
+
+
+
+
+
+-- SCRATCH UNIVERSE CTE
+-- Test function
+select * 
+from reference.universe_time_series_fn(nonfin_cutoff => 900, fin_cutoff => 100, valid_year_param => 2019) 
+where symbol in ('BGNE','EBIX','KOSN','TUSK')
+
+select 
+extract(year from date_stamp) as yr 
+,valid_year_ind
+,count(distinct symbol) 
+from reference.universe_time_series_fn(nonfin_cutoff => 900, fin_cutoff => 100, valid_year_param => 2020) 
+where symbol in ('BGNE','EBIX','KOSN','TUSK')
+group by 1,2
+
+
+-- Function
+create or replace function reference.universe_time_series_fn
+
+	(
+		fin_cutoff 			int 	default 100
+		,nonfin_cutoff 		int 	default 900
+		,valid_year_param	int 	default 2020
+	) 
+	
+	returns table 
+	(
+		symbol 			text
+		,sector			text
+		,fin_nonfin		text
+		,valid_year_ind text
+		,date_stamp		date
+	)
+
+
+	language plpgsql
+	
+	as $$
+	
+	begin
+		
+	return query
+	
+		with prices as 
+			(
+				select month_start::date - 1 as month_end
+				from generate_series('2000-01-01'::date, now()::date, '1 month'::interval) as month_start
+			)
+		
+		,ind_ref as 
+			(
+				select
+				ind.ticker 
+				,lk.lookup_val4 as sector
+				,case -- see TO DO
+					when ind.sic::int between 6000 and 6500 then 'financial' 
+					else 'non_financial' end as fin_nonfin
+				from reference.ticker_cik_sic_ind ind
+				left join reference.lookup lk
+				on ind.simfin_industry_id = lk.lookup_ref::int
+				and lk.lookup_table = 'simfin_industries' 
+			)	
+			
+		,universe as 
+			(	
+				select 
+					t.ticker as symbol
+					,t.sic
+					,i.sector
+					,i.fin_nonfin
+					,f.valid_year 
+					,t.ipo_date as start_date
+					,t.delist_date as end_date
+					,case 
+						when lag(f.valid_year) over (partition by t.ticker order by f.valid_year) is null then make_date(f.valid_year-2,1,1) 
+						else make_date(f.valid_year,1,1) 
+						end as start_year
+					,make_date(f.valid_year,12,31) as end_year
+				from 
+					reference.fundamental_universe f
+					left join reference.ticker_cik_sic_ind t
+					on f.cik = t.cik
+					left join ind_ref i
+					on t.ticker = i.ticker
+				where 
+					(
+						(i.fin_nonfin = 'financial' and f.combined_rank < fin_cutoff) or
+						(i.fin_nonfin != 'financial' and f.combined_rank < nonfin_cutoff) 
+					)
+					and f.valid_year = valid_year_param
+				order by
+					t.ticker 
+					,f.valid_year
+			)
+			
+		select
+			universe.symbol
+			,universe.sector
+			,universe.fin_nonfin
+			,case when extract(year from prices.month_end) = universe.valid_year then 'valid' else 'invalid' end as valid_year_ind
+			,prices.month_end as date_stamp 
+		from 
+			prices
+			cross join universe
+		where
+			prices.month_end between universe.start_date and universe.end_date
+			and prices.month_end between universe.start_year and universe.end_year
+			order by 1,5
+	
+	;
+	end; $$
+	
+	
+	
+-- Test view
+select 
+extract(year from date_stamp) as yr 
+,valid_year_ind
+,count(distinct symbol) 
+from reference.universe_time_series_vw 
+where extract(year from date_stamp) >= 2019
+group by 1,2
+and symbol in ('BGNE','EBIX','KOSN','TUSK')
+
+
+-- View
+create or replace view reference.universe_time_series_vw as 
+
+with prices as 
+	(
+		select month_start::date - 1 as month_end
+		from generate_series('2000-01-01'::date, now()::date, '1 month'::interval) as month_start
+	)
+
+,ind_ref as 
+	(
+		select
+		ind.ticker 
+		,lk.lookup_val4 as sector
+		,case -- see TO DO
+			when ind.sic::int between 6000 and 6500 then 'financial' 
+			else 'non_financial' end as fin_nonfin
+		from reference.ticker_cik_sic_ind ind
+		left join reference.lookup lk
+		on ind.simfin_industry_id = lk.lookup_ref::int
+		and lk.lookup_table = 'simfin_industries' 
+	)	
+	
+,universe as 
+	(	
+		select 
+			t.ticker as symbol
+			,t.sic
+			,i.sector
+			,i.fin_nonfin
+			,f.valid_year 
+			,t.ipo_date as start_date
+			,t.delist_date as end_date
+			,case 
+				when lag(f.valid_year) over (partition by t.ticker order by f.valid_year) is null then make_date(f.valid_year-2,1,1) 
+				else make_date(f.valid_year,1,1) 
+				end as start_year
+			,make_date(f.valid_year,12,31) as end_year
+		from 
+			reference.fundamental_universe f
+			left join reference.ticker_cik_sic_ind t
+			on f.cik = t.cik
+			left join ind_ref i
+			on t.ticker = i.ticker
+		where 
+			(
+				(i.fin_nonfin = 'financial' and f.combined_rank < 100) or
+				(i.fin_nonfin != 'financial' and f.combined_rank < 900) 
+			)
+			and f.valid_year = 2020
+		order by
+			t.ticker 
+			,f.valid_year
+	)
+	
+select
+	universe.symbol
+	,universe.sector
+	,universe.fin_nonfin
+	,case when extract(year from prices.month_end) = universe.valid_year then 'valid' else 'invalid' end as valid_year_ind
+	,prices.month_end as date_stamp 
+from 
+	prices
+	cross join universe
+where
+	prices.month_end between universe.start_date and universe.end_date
+	and prices.month_end between universe.start_year and universe.end_year
+	order by 1,5
 ;

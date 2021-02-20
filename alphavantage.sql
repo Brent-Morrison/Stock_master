@@ -9,9 +9,9 @@
 * 
 ******************************************************************************/
 
-drop table if exists alpha_vantage.earnings cascade;
+--truncate alpha_vantage.earnings;
 
-select * from alpha_vantage.earnings
+select count(*) from alpha_vantage.earnings
 
 create table alpha_vantage.earnings			
 	(		
@@ -97,8 +97,11 @@ alter table alpha_vantage.active_delisted owner to postgres;
 * DESCRIPTION: 
 * Create view returning list of tickers for which price data update is required
 * 
-* ERRORS
+* ERRORS:
 * Where clause could be entered as parameter
+* 
+* TO DO:
+* - "fu.valid_year = 2020" could be entered as parameter
 * 
 ******************************************************************************/
 
@@ -160,14 +163,21 @@ create or replace view alpha_vantage.tickers_to_update as
 * Used by Python script "return_attributes.py"
 * 
 * TO DO:
-* 
+* - assess if the industry reference in "ind_ref" CTE should reference the simfin industry
+*   (same as for edgar.qrtly_fndmntl_ts_vw)
+* - does this need to include a valid year indicator so that when results are returned
+*   for the burn in period, these are flagged appropriately (ie., for exclusion from analysis)
+*   (same as for edgar.qrtly_fndmntl_ts_vw)
 *  
 ******************************************************************************/
 
 -- Test
+-- EBIX=814549, rank will exclude in 2020
+-- TUSK=1679268 is valid only for 2019
+-- BGNE=1651308 rank will include from 2019
 select * 
 from alpha_vantage.daily_price_ts_vw 
-where symbol in ('FAST')--,'AAN','AAWW','ABM','ACCO','ACM','AAPL','ADBE','ADI','ADT','AKAM','AMD') 
+where symbol in ('BGNE','EBIX','KOSN','TUSK') 
 and date_stamp > '2013-01-01'
 
 create index shareprices_daily_idx on alpha_vantage.shareprices_daily (symbol, "timestamp")
@@ -209,7 +219,7 @@ with prices as
 		select
 		ind.ticker 
 		,lk.lookup_val4 as sector
-		,case 
+		,case -- see TO DO
 			when ind.sic::int between 6000 and 6500 then 'financial' 
 			else 'non_financial' end as fin_nonfin
 		from reference.ticker_cik_sic_ind ind
@@ -277,7 +287,7 @@ from
 * Create view to extract last monthly price data for porting to Python / R for 
 * fundamental valuation models.
 * 
-* Used by R script "?????.r"
+* Used by R script "fndmntl_attributes.r"
 * 
 * TO DO:
 * - Universe CTE, rolling calc. burn in period required
@@ -314,6 +324,122 @@ create or replace view alpha_vantage.monthly_price_ts_vw as
 
 
 	
+
+/******************************************************************************
+* 
+* alpha_vantage.monthly_fwd_rtn
+* 
+* DESCRIPTION:
+* Create table to create forward returns for dependent variable.
+* 
+* TO DO:
+* - Write to table with population limited to only "valid" stocks for the year in question
+*   Prior returns do not change so this can be static for all dates except the current year.
+*   How to update to overwrite the most recent dates NULL's?
+*   This table can then be used as a filter for the population to be predicted
+* 
+******************************************************************************/
+
+-- Test
+select *  from alpha_vantage.monthly_fwd_rtn where date_stamp = '2015-01-31' and sector = '7'
+select date_stamp, count(*) as record_count from alpha_vantage.monthly_fwd_rtn group by 1
+
+
+drop table alpha_vantage.monthly_fwd_rtn;
+
+create table alpha_vantage.monthly_fwd_rtn as 
+
+with prices as 
+	(
+		select 
+		"timestamp"
+		,symbol
+		,adjusted_close
+		,(lead(adjusted_close, 1) over (partition by symbol order by "timestamp") - adjusted_close) / nullif(adjusted_close,0) as fwd_rtn_1m
+		,(lead(adjusted_close, 3) over (partition by symbol order by "timestamp") - adjusted_close) / nullif(adjusted_close,0) as fwd_rtn_3m
+		from 
+			(	-- Capture most recent version of price data (i.e., split & dividend adjusted)
+				select 
+				sd.* 
+				,row_number() over (partition by "timestamp", symbol order by capture_date desc) as row_num
+				from alpha_vantage.shareprices_daily sd 
+				inner join 
+					(  -- Last trade date in month only
+						select 
+						max("timestamp") as last_trade_date
+						from alpha_vantage.shareprices_daily
+						where symbol = 'GSPC'
+						group by date_trunc('month', "timestamp") 
+						order by max("timestamp") 	
+					) ltd
+				on sd."timestamp" = ltd.last_trade_date
+			) t1
+		where row_num = 1
+	)
+
+,ind_ref as 
+	(
+		select
+		ind.ticker 
+		,lk.lookup_val4 as sector
+		,case 
+			when lk.lookup_val1 = 'Financial Services' then 'financial' 
+			else 'non_financial' end as fin_nonfin
+		from reference.ticker_cik_sic_ind ind
+		left join reference.lookup lk
+		on ind.simfin_industry_id = lk.lookup_ref::int
+		and lk.lookup_table = 'simfin_industries' 
+	)	
+	
+,universe as 
+	(	
+		select 
+			t.ticker 
+			,t.sic
+			,i.sector
+			,t.ipo_date as start_date
+			,t.delist_date as end_date
+			,f.valid_year
+		from 
+			reference.fundamental_universe f
+			left join reference.ticker_cik_sic_ind t
+			on f.cik = t.cik
+			left join ind_ref i
+			on t.ticker = i.ticker
+		where 
+			(i.fin_nonfin = 'financial' and f.combined_rank < 100) or
+			(i.fin_nonfin != 'financial' and f.combined_rank < 900) 
+		order by
+			t.ticker 
+			,f.valid_year
+	)
+	
+select
+	prices.symbol
+	,universe.sector
+	,(date_trunc('MONTH', prices."timestamp") + interval '1 month - 1 day')::date as date_stamp 
+	,prices.adjusted_close
+	,prices.fwd_rtn_1m
+	,prices.fwd_rtn_3m
+	,ntile(10) over (partition by "timestamp" order by fwd_rtn_1m) as fwd_rtn_1m_dcl
+	,ntile(10) over (partition by "timestamp" order by fwd_rtn_3m) as fwd_rtn_3m_dcl
+	,ntile(10) over (partition by "timestamp", sector order by fwd_rtn_1m) as fwd_rtn_1m_sctr_dcl
+	,ntile(10) over (partition by "timestamp", sector order by fwd_rtn_3m) as fwd_rtn_3m_sctr_dcl
+from 
+	prices
+	inner join universe
+	on prices.symbol = universe.ticker
+	and extract(year from prices."timestamp") = universe.valid_year
+where 
+	prices."timestamp" >= '2012-01-01'
+	--prices.symbol in ('ANF','BGNE','EBIX','TUSK','SANP') -- for test
+order by 1,3 
+;
+
+
+
+	
+
 
 /******************************************************************************
 * 
@@ -367,7 +493,7 @@ create or replace view alpha_vantage.splits_vw as
 ******************************************************************************/
 
 -- This ignores the order of the capture date
-delete from alpha_vantage.shareprices_daily dupes
+delete select * from alpha_vantage.shareprices_daily dupes
 where exists 
 	(
 		select from alpha_vantage.shareprices_daily

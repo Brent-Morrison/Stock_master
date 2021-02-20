@@ -50,7 +50,32 @@ An example of date reporting for financial statement information taken from the 
 
 The months subsequent to October 2020, and preceding the capture date of the next quarters financial statements, will have identical reporting, publish and capture dates.  
 
-## Development / random ideas
+## Attribute names    
+The table below shows attributes codes and descriptions.
+
+| Attribute code        | Attribute description         |
+| --------------------- |:------------------------------|
+| rtn_ari_1m_dcl        | 1 month arithmetic return     |
+| amihud_1m_dcl         | "amihud" illiquidity measure  |
+| vol_ari_20d_dcl       | volatility  of 1 day arithmetic returns |
+| skew_ari_120d_dcl     | skewness of 1 day arithmetic returns |
+| cor_rtn_1d_mkt_120d_sctr_dcl | correlation of 1 day returns with the S&P500 index |
+| beta_rtn_1d_mkt_120d_sctr_dcl | beta of 1 day returns with the S&P500 index |
+
+Each of these attributes are discretised into deciles.  These deciles have ```_dcl``` appended.  Some attributes have also been assigned to deciles by industry group.  These are appended with ```_sctr_dcl```.  The first decile is the lowest value of the attribute in question.  Ordering has not been aligned to the consensus view of the attribute / factor effect. 
+
+## Development
+
+| Description | Status |
+|:----------|:-------|
+| Earnings data update script, ```alphavantage_import.py```, to reference last request time via the  ```capture_date``` field in order to filter out prior requests not returning data. This will entail adding ```capture_date``` to the ```alpha_vantage.tickers_to_update``` view and updating logic at line 117. | TO DO |
+| Load edgar ```pre.txt``` file in order to accurately capture balance sheet and income statement line items using the ```stmt``` field | TO DO |
+| Append the pre 2012 "universe" to the ```alpha_vantage.monthly_fwd_rtn``` table.  These are stocks that are not returned in the SEC edgar data, and are ranked by dollar volume for inclusion. | TO DO |
+| Get industry / sector data for stocks pre 2012 that are not returned in the SEC edgar data. | TO DO |
+| Size ranking uses a combination of total equity and total assets by financial and non-financial stocks.  Winsorise minimum of total equity at 5% of total assets.  This will negate the impact of negative equity stocks, when the negative equity is driven by buybacks.  see ticker MCD for example. | TO DO |
+
+
+## Random ideas
 1. Price return modeling
     1. Survival analysis assessing risk of drawdown - [link](https://lib.bsu.edu/beneficencepress/mathexchange/06-01/jiayi.pdf)
 2. Dimensionality reduction of returns at portfolio level

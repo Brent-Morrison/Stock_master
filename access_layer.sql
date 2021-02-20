@@ -98,7 +98,7 @@ alter table access_layer.fundamental_attributes owner to postgres;
 *
 * 
 ******************************************************************************/
-select count(*) from access_layer.return_attributes
+select date_stamp, count(*) as records from access_layer.return_attributes group by 1 order by 1
 
 drop table if exists access_layer.return_attributes;
 
@@ -125,7 +125,6 @@ create table access_layer.return_attributes
 		, rtn_ari_3m numeric
 		, rtn_ari_6m numeric
 		, rtn_ari_12m numeric
-		, fwd_rtn_1m numeric
 		, sector smallint
 		, suv numeric
 		, ipc numeric
@@ -144,6 +143,8 @@ create table access_layer.return_attributes
 		, smax_20d_dcl smallint
 		, cor_rtn_1d_mkt_120d_dcl smallint
 		, beta_rtn_1d_mkt_120d_dcl smallint
+		, suv_120d_dcl smallint
+		, ipc_120d_dcl smallint
 		, rtn_ari_1m_sctr_dcl smallint
 		, rtn_ari_3m_sctr_dcl smallint
 		, rtn_ari_6m_sctr_dcl smallint
@@ -156,9 +157,10 @@ create table access_layer.return_attributes
 		, vol_ari_120d_sctr_dcl smallint
 		, skew_ari_120d_sctr_dcl smallint
 		, kurt_ari_120d_sctr_dcl smallint
-		, smax_20d_vdcl smallint
+		, smax_20d_sctr_dcl smallint
 		, cor_rtn_1d_mkt_120d_sctr_dcl smallint
 		, beta_rtn_1d_mkt_120d_sctr_dcl smallint
+		, suv_120d_sctr_dcl smallint
 	);
 
 alter table access_layer.return_attributes owner to postgres;

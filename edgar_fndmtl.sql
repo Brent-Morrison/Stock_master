@@ -503,11 +503,16 @@ create or replace function edgar.edgar_fndmntl_fltr_fn
 * ERRORS:
 * 
 * TO DO:
+* - assess if the industry reference in "ind_ref" CTE should reference the simfin industry
+*   (same as for alpha_vantage.daily_price_ts_view)
+* - does this need to include a valid year indicator so that when results are returned
+*   for the burn in period, these are flagged appropriately (ie., for exclusion from analysis)
+*   (same as for edgar.qrtly_fndmntl_ts_vw)
 * 
 ******************************************************************************/
 	
 --Test
-select * from edgar.qrtly_fndmntl_ts_vw where ticker = 'ABG'
+select * from edgar.qrtly_fndmntl_ts_vw where ticker in ('BGNE','EBIX','TUSK')
 
 create or replace view edgar.qrtly_fndmntl_ts_vw as 
 

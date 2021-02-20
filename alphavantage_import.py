@@ -21,12 +21,12 @@ import requests
 import yfinance as yf
 
 # Parameters
-password = ''
-apikey = ''
-data = 'prices'                                    # Data to grab 'prices' or 'eps'
+password = 'Bremor*74'
+apikey = 'J2MWHUOABDSEVS6P'
+data = 'eps'                                    # Data to grab 'prices' or 'eps'
 wait_seconds = 20                               # Wait time before pinging AV server
-update_to_date = dt.datetime(2021,1,31).date()  # If the last date in the database is this date, do nothing
-batch_size = 3                                # Number of tickers to process per batch
+update_to_date = dt.datetime(2021,2,16).date()  # If the last date in the database is this date, do nothing
+batch_size = 350                                # Number of tickers to process per batch
 
 # Connect to postgres database
 # ?gssencmode=disable' per https://stackoverflow.com/questions/59190010/psycopg2-operationalerror-fatal-unsupported-frontend-protocol-1234-5679-serve
@@ -101,9 +101,10 @@ tickers['last_eps_date'] = tickers['last_eps_date'].fillna(default_date)
 if data == 'prices':
   ticker_list = tickers[tickers['last_date_in_db'] < update_to_date]
 elif data == 'eps':
-  ticker_list = tickers[tickers['last_eps_date'] < update_to_date]  # ROW 127 CONDITION HERE
+  ticker_list = tickers[tickers['last_eps_date'] < (update_to_date - dt.timedelta(days=80))]  # ROW 127 CONDITION HERE
 
 ticker_list = ticker_list.values
+
 
 
 # Update function 
@@ -124,7 +125,7 @@ for ticker in ticker_list:
     break
 
   # If data is up to date exit loop 
-  if (data == 'prices' and last_date_in_db >= update_to_date) or (data == 'eps' and (update_to_date - last_date_in_db).days < 40):
+  if (data == 'prices' and last_date_in_db >= update_to_date) or (data == 'eps' and (update_to_date - last_date_in_db).days < 70):
     iter_count += 1
     inner = [last_date_in_db,'data_up_to_date']
     last_av_dates.append(inner)
@@ -177,7 +178,8 @@ for ticker in ticker_list:
       df_raw = None
       try:
         df_raw = get_alphavantage(
-            symbol=symbol, 
+            symbol=symbol,
+            data=data, 
             apikey=apikey, 
             outputsize = 'full'
             )
@@ -225,8 +227,8 @@ for ticker in ticker_list:
 
 # Send list of stale stocks to db
 if data == 'prices':
-  ticker_excl = pd.DataFrame(data=ticker_list[:len(last_av_dates)], 
-    columns=['ticker','last_date_in_db','price','last_eps_date']) # Error - column "last_eps_date" of relation "ticker_excl" does not exist
+  ticker_excl = pd.DataFrame(data=ticker_list[:len(last_av_dates),:3], 
+    columns=['ticker','last_date_in_db','price']) # Error - column "last_eps_date" of relation "ticker_excl" does not exist
   last_av_dates = np.array(last_av_dates)
   ticker_excl['last_av_date'] = last_av_dates[:,0]
   ticker_excl['status'] = last_av_dates[:,1]
