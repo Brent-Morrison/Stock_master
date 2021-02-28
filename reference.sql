@@ -222,7 +222,7 @@ order by
 -- Test function
 select * 
 from reference.universe_time_series_fn(nonfin_cutoff => 900, fin_cutoff => 100, valid_year_param => 2019) 
-where symbol in ('BGNE','EBIX','KOSN','TUSK')
+where symbol in ('ADT','BGNE','EBIX','KOSN','TUSK')
 
 select 
 extract(year from date_stamp) as yr 
@@ -319,12 +319,13 @@ create or replace function reference.universe_time_series_fn
 			,case when extract(year from prices.month_end) = universe.valid_year then 'valid' else 'invalid' end as valid_year_ind
 			,prices.month_end as date_stamp 
 		from 
-			prices
-			cross join universe
-		where
-			prices.month_end between universe.start_date and universe.end_date
-			and prices.month_end between universe.start_year and universe.end_year
-			order by 1,5
+			universe
+			left join prices
+		on prices.month_end >= universe.start_date 
+			and prices.month_end <= universe.end_date
+			and prices.month_end >= universe.start_year 
+			and prices.month_end <= universe.end_year
+		order by 1,5
 	
 	;
 	end; $$

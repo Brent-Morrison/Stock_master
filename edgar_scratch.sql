@@ -5,11 +5,11 @@
 * 
 ******************************************************************************/
 
-select * from alpha_vantage.shareprices_daily where symbol = 'AIG' and "timestamp" between '2019-01-01' and '2019-01-31'
+select * from alpha_vantage.shareprices_daily where symbol = 'ESL' and "timestamp" between '2017-01-01' and '2020-12-31' order by "timestamp"
 
 select symbol, max("timestamp") as max_date from alpha_vantage.shareprices_daily group by 1 order by 2 desc
 
-select * from alpha_vantage.ticker_excl
+select date_stamp, count(*) as n from access_layer.return_attributes group by 1 order by 1 desc
 
 delete from alpha_vantage.ticker_excl where status = 'failed_no_data' and last_date_in_db = '2020-11-03'  --ticker in ('ZBRA','ZG','ZION','ZNGA','ZTS')  --last_date_in_db = '2020-11-02'
 
@@ -444,7 +444,77 @@ where rank_lag > 900 and combined_rank < 900
 
 
 
+with prices as 
+	(
+		select 
+		"timestamp"
+		,symbol
+		,close
+		,adjusted_close
+		,volume
+		,(date_trunc('month', "timestamp") + interval '1 month - 1 day')::date as me_date
+		from 
+			(	-- Capture most recent version of price data (i.e., split & dividend adjusted)
+				select 
+				sd.* 
+				,row_number() over (partition by "timestamp", symbol order by capture_date desc) as row_num
+				from alpha_vantage.shareprices_daily sd 
+				where 1 = 1 --"timestamp" > '2018-01-01'
+			) t1
+		where row_num = 1
+		and symbol != 'GSPC'
+	)
 
+,sp_500 as 
+	(
+		select 
+		"timestamp",
+	    adjusted_close as sp500
+	    from alpha_vantage.shareprices_daily
+	    where symbol = 'GSPC'
+	    --and "timestamp" > '2018-01-01'
+    )
+
+,universe as 
+	(
+	select *
+	from reference.universe_time_series_fn(nonfin_cutoff => 900, fin_cutoff => 100, valid_year_param => 2019)
+	where symbol in ('BGNE','EBIX','KOSN','TUSK')
+	) 
+	
+select
+	prices.symbol
+	,universe.sector
+	,prices."timestamp" as date_stamp 
+	,prices."close"
+	,prices.adjusted_close
+	,prices.volume
+	,sp_500.sp500
+	,valid_year_ind
+from 
+	universe
+	left join prices
+	on prices.symbol = universe.symbol
+	and universe.date_stamp = prices.me_date
+	left join sp_500
+	on prices."timestamp" = sp_500."timestamp"
+	order by 1,3 
+;
+
+	
+select 
+vw.* 
+,fn.*
+--,(date_trunc('month', vw.date_stamp) + interval '1 month - 1 day')::date as date_stamp
+from alpha_vantage.daily_price_ts_vw vw 
+inner join 
+	(
+	select *
+	from reference.universe_time_series_fn(nonfin_cutoff => 900, fin_cutoff => 100, valid_year_param => 2019)
+	where symbol in ('BGNE','EBIX','KOSN','TUSK')
+	) fn
+on fn.date_stamp = (date_trunc('month', vw.date_stamp) + interval '1 month - 1 day')::date
+and fn.symbol = vw.symbol
 
 
 

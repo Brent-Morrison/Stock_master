@@ -13,6 +13,8 @@
 #    Require functionality to latest months records from DB (those with NA fwd returns) and re-insert
 # 4. Add deciles for SUV
 # 5. Confirm dollar volume for amihud is correct (volume * close vs adjusted close?) 
+# 6. Error capture for amihud calculation if volume is zero or return nil
+# 7. Add upside and downside versions of correlation, beta and volatility
 #
 #==============================================================================
 
@@ -76,32 +78,24 @@ start_date <- paste(
   '01', 
   sep = '-')
 
+# Valid year parameter for extract function
+valid_year_param <- as.integer(year(as.Date(end_date)))
 
-# Read data
-sql1 <- "select * from alpha_vantage.daily_price_ts_vw where date_stamp >= ?start_date and date_stamp <= ?end_date"
-sql1 <- sqlInterpolate(conn = con, sql = sql1, start_date = start_date, end_date = end_date)
+# Read price data
+#sql1 <- "select * from alpha_vantage.daily_price_ts_vw"
+#sql1 <- "select * from alpha_vantage.daily_price_ts_vw where date_stamp >= ?start_date and date_stamp <= ?end_date"
+sql1 <- "select * from alpha_vantage.daily_price_ts_fn(valid_year_param => ?valid_year_param, nonfin_cutoff => 900, fin_cutoff => 100)"
+sql1 <- sqlInterpolate(conn = con, sql = sql1, valid_year_param = valid_year_param)
+#sql1 <- sqlInterpolate(conn = con, sql = sql1, start_date = start_date, end_date = end_date)
 qry1 <- dbSendQuery(conn = con, statement = sql1) 
 df_raw <- dbFetch(qry1)
+colnames(df_raw) <- sub("_$","",colnames(df_raw))
 
-# Workflow to delete months with forward returns as NA's
-# if (month_to_delete != 9) {
-#   sql2 <- "select max(date_stamp) as max_date from access_layer.return_attributes"
-#   sql2 <- sqlInterpolate(conn = con, sql = sql2)
-#   qry2 <- dbSendQuery(conn = con, statement = sql2) 
-#   max_db_date <- dbFetch(qry2)
-#   max_db_date <- as.Date(max_db_date[1,1])
-#   first_delete_month <- max_db_date %m-% months(month_to_delete)
-#   # As string
-#   first_delete_month <- paste(
-#     year(as.Date(first_delete_month)), 
-#     sprintf('%02d', month(as.Date(first_delete_month))), 
-#     day(as.Date(first_delete_month)), 
-#     sep = '-')
-#   
-#   sql3 <- "delete from access_layer.return_attributes where date_stamp >= ?first_delete_month"
-#   sql3 <- sqlInterpolate(conn = con, sql = sql3, first_delete_month = first_delete_month)
-#   qry3 <- dbSendQuery(conn = con, statement = sql3) 
-# }
+# Extract valid trading days from S&P500 series
+sql2 <- "select * from alpha_vantage.daily_sp500_ts_vw where extract(year from date_stamp) = ?valid_year_param"
+sql2 <- sqlInterpolate(conn = con, sql = sql2, valid_year_param = valid_year_param)
+qry2 <- dbSendQuery(conn = con, statement = sql2) 
+valid_year_trade_days <- dbFetch(qry2)
 
 
 
@@ -139,8 +133,13 @@ ipc <- function(df) {
   ipc <- df %>%
     select(date_stamp, symbol, rtn_log_1d) %>%
     pivot_wider(names_from = symbol, values_from = rtn_log_1d) %>% 
-    select(-date_stamp) %>% 
-    cor(use = 'pairwise.complete.obs') %>%
+    select(-date_stamp)
+  ipc[ipc == 0] <- NA
+  ipc[is.nan(ipc)] <- 0
+  ipc <- as.data.frame(ipc)
+  na_ind <- which(is.na(ipc), arr.ind = TRUE)
+  ipc[na_ind] <- rowMeans(ipc, na.rm = TRUE)[na_ind[,1]]
+  ipc <- cor(ipc, use = 'pairwise.complete.obs') %>%
     mean_mtrx()
   return(tibble(date_stamp = max_date, ipc = ipc))
 }
@@ -162,10 +161,63 @@ ipc_by_grp <- function(df) {
 #
 #==============================================================================
 
-daily <- df_raw %>% 
+# Find stocks without a full current (most recent) month of trading
+# - find the last trade date for each month based on S&P500 data
+valid_trade_days_pm <- valid_year_trade_days %>% 
+  group_by(month = floor_date(date_stamp, "month")) %>% 
+  summarise(n_valid = n(), max_date_valid = max(date_stamp))
+
+# - stocks that did not trade on the last day of the most recent month
+month_trade_days_excptn <- select(df_raw, date_stamp, symbol) %>% 
+  group_by(symbol, month = floor_date(date_stamp, "month")) %>% 
+  summarise(n_actual = n(), max_date_actual = max(date_stamp)) %>% 
+  left_join(valid_trade_days_pm, by = 'month') %>% 
+  filter(
+    year(month) == year(as.Date(end_date)),
+    max_date_valid > max_date_actual
+    ) %>% 
+  mutate(label = 'month_trade_days_excptn', year = valid_year_param) %>% 
+  select(label, year, symbol, month, max_date_actual, n_actual) %>% 
+  rename(min_date = month, max_date = max_date_actual, n = n_actual)
+
+
+# Reference df - stocks with invalid sector / industry data
+invalid_sctr <- df_raw %>% 
+  filter(sector == '13') %>% 
   group_by(symbol) %>% 
-  # Filter out symbols that do not have enough records
-  filter(n() > 500) %>% 
+  summarise(min_date = min(date_stamp), max_date = max(date_stamp), n = n()) %>% 
+  mutate(label = 'invalid_sctr', year = valid_year_param) %>% 
+  select(label, year, symbol, min_date, max_date, n)
+
+# Reference df - stock with not enough trading days to satisfy attribute look-back calculation
+daily_less_500 <- df_raw %>% 
+  group_by(symbol) %>% 
+  filter(n() <= 500) %>% 
+  summarise(min_date = min(date_stamp), max_date = max(date_stamp), n = n()) %>% 
+  mutate(label = 'daily_less_500', year = valid_year_param) %>% 
+  select(label, year, symbol, min_date, max_date, n)
+
+# Remove stocks without a full current (most recent) month of trading (see df "month_trade_days_excptn")
+df_raw$floor_date <- floor_date(df_raw$date_stamp, "month")
+
+daily <- df_raw %>% 
+  anti_join(
+    x = df_raw,
+    y = month_trade_days_excptn, 
+    by = c("symbol" = "symbol", "floor_date" = "min_date")
+  )
+
+
+daily <- daily %>% 
+  select(-valid_year_ind) %>% 
+  group_by(symbol) %>% 
+  # Filter out symbols that do not have enough records (see df "daily_less_500") , filter S&P500 
+  # and filter stocks with invalid (13) sector / industry data 
+  filter(
+    n() > 500, 
+    symbol != 'GSPC',
+    sector != '13',
+    ) %>% 
   mutate(
     sector                  = as.numeric(sector)
     ,rtn_ari_1d             = (adjusted_close-lag(adjusted_close))/lag(adjusted_close)
@@ -234,20 +286,25 @@ monthly1 <- daily %>%
 #
 #==============================================================================
 
-
+# THIS IS PRODUCING AN ERROR, DUPLICATES FOR CERTAIN STOCKS IN 2019, EG. MBFI, USG
+# SHORT TIME FIX VIA GROUP BY AT END OF CODE BLOCK
 # Derive Standardised Unexplained Volume
 suv_df <- daily %>% 
   ungroup() %>% 
   arrange(date_stamp) %>% 
+  # Drop potential NA's entering the regression
+  drop_na(any_of(c('volume', 'pos', 'neg'))) %>% 
   slide_period_dfr(
     .x =  .,
     .i = .$date_stamp,
     .period = "month",
     .f = suv_by_grp,
-    .before = 5,
+    .before = 11,
     .complete = TRUE
   ) %>% 
-  mutate(date_stamp = ceiling_date(date_stamp, unit = "month") - 1)
+  mutate(date_stamp = ceiling_date(date_stamp, unit = "month") - 1) %>% 
+  group_by(symbol, date_stamp) %>% 
+  summarise(suv = round(mean(suv),4))
 
 # Derive sector Intra Portfolio Correlation
 ipc_df <- daily %>% 
@@ -332,7 +389,12 @@ monthly <- filter(monthly, date_stamp > as.Date(end_date) %m-% months(months_to_
 
 # Check nulls
 # Number of stock months with NA's
-na_count <- monthly %>% filter_all(any_vars(is.na(.))) %>% tally()
+monthly_na_records <- monthly %>% 
+  filter_all(any_vars(is.na(.))) %>% 
+  group_by(symbol) %>% 
+  summarise(min_date = min(date_stamp), max_date = max(date_stamp), n = n()) %>% 
+  mutate(label = 'monthly_na_records', year = valid_year_param) %>% 
+  select(label, year, symbol, min_date, max_date, n)
 
 
 # Convert to data frame for upload to database (drop NA's except fwd return)
@@ -385,19 +447,55 @@ execution_time <- end_time - start_time
 
 
 
-#====================================================================================================================
-#====================================================================================================================
-#====================================================================================================================
 
-price_attributes(
+
+
+
+
+
+#==============================================================================================================================
+#==============================================================================================================================
+#==============================================================================================================================
+
+con <- stock_master_connect()
+
+result_set <- price_attributes(
   end_date = '2019-12-31', 
+  con = con,
   months_to_load = 12, 
   write_to_db = TRUE, 
-  disconnect = FALSE, 
+  disconnect = TRUE, 
   return_df = TRUE
   )
 
-price_attributes <- function(end_date, months_to_load = 12, write_to_db = TRUE, disconnect = FALSE, return_df = TRUE) {
+
+# Function definition - connect
+stock_master_connect <- function() {
+  
+  if (!exists('con')) {
+    con <- dbConnect(
+      RPostgres::Postgres(),
+      host      = 'localhost',
+      port      = '5432',
+      dbname    = 'stock_master',
+      user      = rstudioapi::askForPassword("User"),
+      password  = rstudioapi::askForPassword("Password")
+    )
+  }
+  
+  return(con)
+
+}
+
+
+# Function definition - insert 
+price_attributes <- function(
+  end_date, 
+  con = NULL, 
+  months_to_load = 12, 
+  write_to_db = TRUE, 
+  disconnect = FALSE, 
+  return_df = TRUE) {
   
   #==============================================================================
   #
@@ -413,17 +511,12 @@ price_attributes <- function(end_date, months_to_load = 12, write_to_db = TRUE, 
   #    Require functionality to latest months records from DB (those with NA fwd returns) and re-insert
   # 4. Add deciles for SUV
   # 5. Confirm dollar volume for amihud is correct (volume * close vs adjusted close?) 
+  # 6. Error capture for amihud calculation if volume is zero or return nil
+  # 7. Add upside and downside versions of correlation, beta and volatility
   #
   #==============================================================================
   
   start_time <- Sys.time()
-  
-  # Parameters
-  #end_date <- '2020-12-31'          # Latest date of available data (character string for SQL)
-  #months_to_load = 12               # Months prior to start date to load to DB
-  #write_to_db <- TRUE              # Boolean - write results to database
-  #disconnect <- FALSE               # Disconnect from DB
-  
   
   # Packages
   
@@ -453,16 +546,9 @@ price_attributes <- function(end_date, months_to_load = 12, write_to_db = TRUE, 
   #
   #==============================================================================
   
-  # Connect to postgres database
+  # Check database connection exists
   if (!exists('con')) {
-    con <- dbConnect(
-      RPostgres::Postgres(),
-      host      = 'localhost',
-      port      = '5432',
-      dbname    = 'stock_master',
-      user      = rstudioapi::askForPassword("User"),
-      password  = rstudioapi::askForPassword("Password")
-    )
+    stop('No database connections')
   }
   
   
@@ -473,12 +559,24 @@ price_attributes <- function(end_date, months_to_load = 12, write_to_db = TRUE, 
     '01', 
     sep = '-')
   
+  # Valid year parameter for extract function
+  valid_year_param <- as.integer(year(as.Date(end_date)))
   
-  # Read data
-  sql1 <- "select * from alpha_vantage.daily_price_ts_vw where date_stamp >= ?start_date and date_stamp <= ?end_date"
-  sql1 <- sqlInterpolate(conn = con, sql = sql1, start_date = start_date, end_date = end_date)
+  
+  # Read price data
+  #sql1 <- "select * from alpha_vantage.daily_price_ts_vw where date_stamp >= ?start_date and date_stamp <= ?end_date"
+  #sql1 <- sqlInterpolate(conn = con, sql = sql1, start_date = start_date, end_date = end_date)
+  sql1 <- "select * from alpha_vantage.daily_price_ts_fn(valid_year_param => ?valid_year_param, nonfin_cutoff => 900, fin_cutoff => 100)"
+  sql1 <- sqlInterpolate(conn = con, sql = sql1, valid_year_param = valid_year_param)
   qry1 <- dbSendQuery(conn = con, statement = sql1) 
   df_raw <- dbFetch(qry1)
+  colnames(df_raw) <- sub("_$","",colnames(df_raw)) # Remove underscores
+  
+  # Extract valid trading days from S&P500 series
+  sql2 <- "select * from alpha_vantage.daily_sp500_ts_vw where extract(year from date_stamp) = ?valid_year_param"
+  sql2 <- sqlInterpolate(conn = con, sql = sql2, valid_year_param = valid_year_param)
+  qry2 <- dbSendQuery(conn = con, statement = sql2) 
+  valid_year_trade_days <- dbFetch(qry2)
   
   # Check data for duplicates
   dupe_test <- df_raw %>% select(date_stamp, symbol, close) %>%
@@ -524,8 +622,12 @@ price_attributes <- function(end_date, months_to_load = 12, write_to_db = TRUE, 
     ipc <- df %>%
       select(date_stamp, symbol, rtn_log_1d) %>%
       pivot_wider(names_from = symbol, values_from = rtn_log_1d) %>% 
-      select(-date_stamp) %>% 
-      cor(use = 'pairwise.complete.obs') %>%
+      select(-date_stamp)
+    ipc[ipc == 0] <- NA
+    ipc <- as.data.frame(ipc)
+    na_ind <- which(is.na(ipc), arr.ind = TRUE)
+    ipc[na_ind] <- rowMeans(ipc, na.rm = TRUE)[na_ind[,1]]
+    ipc <- cor(ipc, use = 'pairwise.complete.obs') %>%
       mean_mtrx()
     return(tibble(date_stamp = max_date, ipc = ipc))
   }
@@ -545,10 +647,64 @@ price_attributes <- function(end_date, months_to_load = 12, write_to_db = TRUE, 
   #
   #==============================================================================
   
-  daily <- df_raw %>% 
+  # Find stocks without a full current (most recent) month of trading
+  # - find the last trade date for each month based on S&P500 data
+  valid_trade_days_pm <- valid_year_trade_days %>% 
+    group_by(month = floor_date(date_stamp, "month")) %>% 
+    summarise(n_valid = n(), max_date_valid = max(date_stamp))
+  
+  # - stocks that did not trade on the last day of the most recent month
+  month_trade_days_excptn <- select(df_raw, date_stamp, symbol) %>% 
+    group_by(symbol, month = floor_date(date_stamp, "month")) %>% 
+    summarise(n_actual = n(), max_date_actual = max(date_stamp)) %>% 
+    left_join(valid_trade_days_pm, by = 'month') %>% 
+    filter(
+      year(month) == year(as.Date(end_date)),
+      max_date_valid > max_date_actual
+    ) %>% 
+    mutate(label = 'month_trade_days_excptn', year = valid_year_param) %>% 
+    select(label, year, symbol, month, max_date_actual, n_actual) %>% 
+    rename(min_date = month, max_date = max_date_actual, n = n_actual)
+  
+  
+  # Reference df - stocks with invalid sector / industry data
+  invalid_sctr <- df_raw %>% 
+    filter(sector == '13') %>% 
     group_by(symbol) %>% 
-    # Filter out symbols that do not have enough records
-    filter(n() > 500) %>% 
+    summarise(min_date = min(date_stamp), max_date = max(date_stamp), n = n()) %>% 
+    mutate(label = 'invalid_sctr', year = valid_year_param) %>% 
+    select(label, year, symbol, min_date, max_date, n)
+  
+  
+  # Reference df - stock with not enough trading days to satisfy attribute look-back calculation
+  daily_less_500 <- df_raw %>% 
+    group_by(symbol) %>% 
+    filter(n() <= 500) %>% 
+    summarise(min_date = min(date_stamp), max_date = max(date_stamp), n = n()) %>% 
+    mutate(label = 'daily_less_500', year = valid_year_param) %>% 
+    select(label, year, symbol, min_date, max_date, n)
+  
+  # Remove stocks without a full current (most recent) month of trading (see df "month_trade_days_excptn")
+  df_raw$floor_date <- floor_date(df_raw$date_stamp, "month")
+  
+  daily <- df_raw %>% 
+    anti_join(
+      x = df_raw,
+      y = month_trade_days_excptn, 
+      by = c("symbol" = "symbol", "floor_date" = "min_date")
+    )
+  
+  
+  daily <- daily %>% 
+    select(-valid_year_ind) %>% 
+    group_by(symbol) %>% 
+    # Filter out symbols that do not have enough records (see df "daily_less_500") , filter S&P500 
+    # and filter stocks with invalid (13) sector / industry data 
+    filter(
+      n() > 500, 
+      symbol != 'GSPC',
+      sector != '13',
+    ) %>% 
     mutate(
       sector                  = as.numeric(sector)
       ,rtn_ari_1d             = (adjusted_close-lag(adjusted_close))/lag(adjusted_close)
@@ -615,19 +771,25 @@ price_attributes <- function(end_date, months_to_load = 12, write_to_db = TRUE, 
   #
   #==============================================================================
   
+  # THIS IS PRODUCING AN ERROR, DUPLICATES FOR CERTAIN STOCKS IN 2019, EG. MBFI, USG
+  # SHORT TIME FIX VIA GROUP BY AT END OF CODE BLOCK
   # Derive Standardised Unexplained Volume
   suv_df <- daily %>% 
     ungroup() %>% 
     arrange(date_stamp) %>% 
+    # Drop potential NA's entering the regression
+    drop_na(any_of(c('volume', 'pos', 'neg'))) %>% 
     slide_period_dfr(
       .x =  .,
       .i = .$date_stamp,
       .period = "month",
       .f = suv_by_grp,
-      .before = 5,
+      .before = 11,
       .complete = TRUE
     ) %>% 
-    mutate(date_stamp = ceiling_date(date_stamp, unit = "month") - 1)
+    mutate(date_stamp = ceiling_date(date_stamp, unit = "month") - 1) %>% 
+    group_by(symbol, date_stamp) %>% 
+    summarise(suv = round(mean(suv),4))
   
   # Derive sector Intra Portfolio Correlation
   ipc_df <- daily %>% 
@@ -669,8 +831,8 @@ price_attributes <- function(end_date, months_to_load = 12, write_to_db = TRUE, 
       smax_20d_dcl             = ntile(smax_20d, 10),
       cor_rtn_1d_mkt_120d_dcl  = ntile(cor_rtn_1d_mkt_120d, 10),    
       beta_rtn_1d_mkt_120d_dcl = ntile(beta_rtn_1d_mkt_120d, 10),
-      suv_120d_dcl             = ntile(suv, 10), ###
-      ipc_120d_dcl             = ntile(ipc, 10), ###
+      suv_120d_dcl             = ntile(suv, 10), 
+      ipc_120d_dcl             = ntile(ipc, 10), 
     ) %>% 
     ungroup() %>% 
     select(symbol, date_stamp, rtn_ari_1m_dcl:ipc_120d_dcl)
@@ -712,7 +874,12 @@ price_attributes <- function(end_date, months_to_load = 12, write_to_db = TRUE, 
   
   # Check nulls
   # Number of stock months with NA's
-  na_count <- monthly %>% filter_all(any_vars(is.na(.))) %>% tally()
+  monthly_na_records <- monthly %>% 
+    filter_all(any_vars(is.na(.))) %>% 
+    group_by(symbol) %>% 
+    summarise(min_date = min(date_stamp), max_date = max(date_stamp), n = n()) %>% 
+    mutate(label = 'monthly_na_records', year = valid_year_param) %>% 
+    select(label, year, symbol, min_date, max_date, n)
   
   
   # Convert to data frame for upload to database (drop NA's except fwd return)
@@ -740,19 +907,27 @@ price_attributes <- function(end_date, months_to_load = 12, write_to_db = TRUE, 
   
   # Disconnect
   if (disconnect) {
+    dbClearResult(qry1)
+    dbClearResult(qry2)
     dbDisconnect(con)
   }
   
   
-  end_time <- Sys.time()
-  
-  execution_time <- end_time - start_time
-  
-  print(execution_time)
-  
-  # Return data frame
+  # Return data frame logic
   if (return_df) {
-    return(monthly)
+    data <- monthly
+  } else {
+    data <- NULL
   }
   
+  end_time <- Sys.time()
+  execution_time <- end_time - start_time
+  
+  return_list <- list(
+    'upload_data' = data, 
+    'execution_time' = execution_time, 
+    'missing_data' = bind_rows(daily_less_500, month_trade_days_excptn, monthly_na_records, invalid_sctr)
+    )
+  
+  invisible(return_list)
 } 

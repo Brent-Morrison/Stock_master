@@ -177,7 +177,7 @@ create or replace view alpha_vantage.tickers_to_update as
 -- BGNE=1651308 rank will include from 2019
 select * 
 from alpha_vantage.daily_price_ts_vw 
-where symbol in ('BGNE','EBIX','KOSN','TUSK') 
+where symbol in ('ADT','BGNE','EBIX','KOSN','TUSK') 
 and date_stamp > '2013-01-01'
 
 create index shareprices_daily_idx on alpha_vantage.shareprices_daily (symbol, "timestamp")
@@ -198,7 +198,6 @@ with prices as
 				sd.* 
 				,row_number() over (partition by "timestamp", symbol order by capture_date desc) as row_num
 				from alpha_vantage.shareprices_daily sd 
-				where 1 = 1 --"timestamp" > '2018-01-01'
 			) t1
 		where row_num = 1
 		and symbol != 'GSPC'
@@ -211,7 +210,6 @@ with prices as
 	    adjusted_close as sp500
 	    from alpha_vantage.shareprices_daily
 	    where symbol = 'GSPC'
-	    --and "timestamp" > '2018-01-01'
     )
 
 ,ind_ref as 
@@ -235,6 +233,7 @@ with prices as
 			,t.sic
 			,i.sector
 			--,i.fin_nonfin
+			,f.valid_year 
 			,t.ipo_date as start_date
 			,t.delist_date as end_date
 			,case 
@@ -248,9 +247,11 @@ with prices as
 			on f.cik = t.cik
 			left join ind_ref i
 			on t.ticker = i.ticker
-		where 
-			(i.fin_nonfin = 'financial' and f.combined_rank < 100) or
-			(i.fin_nonfin != 'financial' and f.combined_rank < 900) 
+		where ( -----------------------------------------------------------------------------
+			(i.fin_nonfin = 'financial' and f.combined_rank < 100) or --- parameter here ----
+			(i.fin_nonfin != 'financial' and f.combined_rank < 900)   --- parameter here ----
+			) -------------------------------------------------------------------------------
+			and f.valid_year = 2019 ------------------------------------- parameter here ----
 		order by
 			t.ticker 
 			,f.valid_year
@@ -264,6 +265,7 @@ select
 	,prices.adjusted_close
 	,prices.volume
 	,sp_500.sp500
+	,case when extract(year from prices."timestamp") = universe.valid_year then 'valid' else 'invalid' end as valid_year_ind
 from 
 	prices
 	inner join universe
@@ -271,10 +273,180 @@ from
 	and prices."timestamp" between universe.start_date and universe.end_date
 	and prices."timestamp" between universe.start_year and universe.end_year
 	left join sp_500
-	on prices."timestamp" = sp_500."timestamp"
-	order by 1,3 
+	on prices."timestamp" = sp_500."timestamp" 
+--where prices.symbol in ('BGNE','EBIX','KOSN','TUSK') -------
+order by 1,3 
 ;
 
+----------------------------------------------------------------------------------------------------------------------
+-- As function
+-- https://www.endpoint.com/blog/2008/12/11/why-is-my-function-slow
+-- https://stackoverflow.com/questions/35914518/postgres-function-slower-than-query-postgres-8-4
+
+with t1 as (select * from alpha_vantage.daily_price_ts_fn(valid_year_param => 2019, nonfin_cutoff => 900, fin_cutoff => 100)) select * from t1 where t in ('ADT','BGNE','EBIX','KOSN','TUSK')
+
+create or replace function alpha_vantage.daily_price_ts_fn
+
+(
+	fin_cutoff 			int 	default 100
+	,nonfin_cutoff 		int 	default 900
+	,valid_year_param	int		default 2021
+) 
+
+returns table 
+(
+	symbol_ 			text
+	,sector_ 			text
+	,date_stamp_		date
+	,"close_"			numeric
+	,adjusted_close_	numeric
+	,volume_			numeric
+	,sp500_				numeric
+	,valid_year_ind_ 	text
+)
+
+language plpgsql
+
+as $$
+
+begin
+
+return query
+
+with prices as 
+	(
+		select 
+		"timestamp"
+		,symbol
+		,close
+		,adjusted_close
+		,volume
+		from 
+			(	-- Capture most recent version of price data (i.e., split & dividend adjusted)
+				select 
+				sd.* 
+				,row_number() over (partition by "timestamp", symbol order by capture_date desc) as row_num
+				from alpha_vantage.shareprices_daily sd 
+			) t1
+		where row_num = 1
+		and symbol != 'GSPC'
+	)
+
+,sp_500 as 
+	(
+		select 
+		"timestamp",
+	    adjusted_close as sp500
+	    from alpha_vantage.shareprices_daily
+	    where symbol = 'GSPC'
+    )
+
+,ind_ref as 
+	(
+		select
+		ind.ticker 
+		,lk.lookup_val4 as sector
+		,case -- see TO DO
+			when ind.sic::int between 6000 and 6500 then 'financial' 
+			else 'non_financial' end as fin_nonfin
+		from reference.ticker_cik_sic_ind ind
+		left join reference.lookup lk
+		on ind.simfin_industry_id = lk.lookup_ref::int
+		and lk.lookup_table = 'simfin_industries' 
+	)	
+	
+,universe as 
+	(	
+		select 
+			t.ticker 
+			,t.sic
+			,i.sector
+			,f.valid_year 
+			,t.ipo_date as start_date
+			,t.delist_date as end_date
+			,case 
+				when lag(f.valid_year) over (partition by t.ticker order by f.valid_year) is null then make_date(f.valid_year-2,1,1) 
+				else make_date(f.valid_year,1,1) 
+				end as start_year
+			,make_date(f.valid_year,12,31) as end_year
+		from 
+			reference.fundamental_universe f
+			left join reference.ticker_cik_sic_ind t
+			on f.cik = t.cik
+			left join ind_ref i
+			on t.ticker = i.ticker
+		where ( 
+			(i.fin_nonfin  = 'financial' and f.combined_rank < fin_cutoff) or 
+			(i.fin_nonfin != 'financial' and f.combined_rank < nonfin_cutoff)
+			)
+			and f.valid_year = valid_year_param
+		order by
+			t.ticker 
+			,f.valid_year
+	)
+	
+select
+	prices.symbol
+	,universe.sector
+	,prices."timestamp" as date_stamp 
+	,prices."close"
+	,prices.adjusted_close
+	,prices.volume
+	,sp_500.sp500
+	,case when extract(year from prices."timestamp") = universe.valid_year then 'valid' else 'invalid' end as valid_year_ind
+from 
+	prices
+	inner join universe
+	on prices.symbol = universe.ticker
+	and prices."timestamp" between universe.start_date and universe.end_date
+	and prices."timestamp" between universe.start_year and universe.end_year
+	left join sp_500
+	on prices."timestamp" = sp_500."timestamp" 
+--where prices.symbol in ('BGNE','EBIX','KOSN','TUSK') -------
+order by 1,3 
+
+;
+end; $$
+
+
+
+
+
+
+/******************************************************************************
+* 
+* alpha_vantage.daily_sp500_ts_view
+* 
+* DESCRIPTION:
+* Create view to extract S&P500 data for porting to Python for technical indicator 
+* creation. 
+* 
+* Used by Python script "return_attributes.py"
+* 
+* TO DO:
+*  
+******************************************************************************/
+
+-- Test
+select * from alpha_vantage.daily_sp500_ts_vw where extract(year from date_stamp) = 2019
+
+create or replace view alpha_vantage.daily_sp500_ts_vw as 
+
+		select 
+		"timestamp" as date_stamp
+		,symbol
+		,close
+		,adjusted_close
+		,volume
+		from 
+			(	-- Capture most recent version of price data (i.e., split & dividend adjusted)
+				select 
+				sd.* 
+				,row_number() over (partition by "timestamp", symbol order by capture_date desc) as row_num
+				from alpha_vantage.shareprices_daily sd 
+			) t1
+		where row_num = 1
+		and symbol = 'GSPC'
 
 
 
@@ -417,7 +589,7 @@ with prices as
 select
 	prices.symbol
 	,universe.sector
-	,(date_trunc('MONTH', prices."timestamp") + interval '1 month - 1 day')::date as date_stamp 
+	,(date_trunc('month', prices."timestamp") + interval '1 month - 1 day')::date as date_stamp 
 	,prices.adjusted_close
 	,prices.fwd_rtn_1m
 	,prices.fwd_rtn_3m
