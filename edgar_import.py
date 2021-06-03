@@ -6,7 +6,8 @@
 ##############################################################################
 
 
-password = ''
+# Connect to postgres database
+conn = pg_connect('')
 
 # Libraries
 from sqlalchemy import create_engine, MetaData, Table, text
@@ -18,32 +19,37 @@ import requests
 import os
 import io as io
 from zipfile import ZipFile
+from functions import *
 
 
 # Create list of URL's for dates required
-# Note that t2020 Q1 is under a different url
+# Note that 2020 Q1 is under a different url
 # https://www.sec.gov/files/node/add/data_distribution/2020q1.zip
 
 # url_list = ['https://www.sec.gov/files/node/add/data_distribution/2020q2.zip']
 
 # Prior quarters
-start_year = 2020
-end_year = 2020
-start_qtr = 4
-end_qtr = 4
+start_year = 2021
+end_year = 2021
+start_qtr = 1
+end_qtr = 1
+
+# Database write method (string: pandas OR stringio)
+db_write_method = 'pandas'
 
 base_url = 'https://www.sec.gov/files/dera/data/financial-statement-data-sets/'
 url_list = [base_url+str(y)+'q'+str(q)+'.zip' 
             for y in range(start_year, end_year+1) 
             for q in range(start_qtr,end_qtr+1)]
 
-
-# Connect to postgres database
+# Connect to postgres database 2
 # ?gssencmode=disable' per https://stackoverflow.com/questions/59190010/psycopg2-operationalerror-fatal-unsupported-frontend-protocol-1234-5679-serve
-engine = create_engine('postgresql://postgres:'+password+
-                        '@localhost:5432/stock_master?gssencmode=disable')
-conn = engine.connect()
-meta = MetaData(engine)
+#engine = create_engine('postgresql://postgres:'+password+
+#                        '@localhost:5432/stock_master?gssencmode=disable')
+#conn = engine.connect()
+
+# Tables
+meta = MetaData(conn)
 meta.reflect(schema='edgar')
 sub_stage = meta.tables['edgar.sub_stage']
 tag_stage = meta.tables['edgar.tag_stage']
@@ -55,8 +61,8 @@ zf_info_dict = {}
 # Looped implementation
 for url in url_list:
     resp = requests.get(url)
-    zf = ZipFile(io.BytesIO(resp.content))
-    zf_files = zf.infolist()
+    zf = ZipFile(io.BytesIO(resp.content)) # Open the Zipfile
+    zf_files = zf.infolist() # List containing a ZipInfo object for each member of the archive
     
     # Extract the quarter from the url string
     # Set this manually for current url which has differing length
@@ -89,9 +95,10 @@ for url in url_list:
             finally:
                 pass
         
-        # Tag does not load properly, save locally in order to use (delimiter='\t|\n')
+        # Tag does not load properly, save locally using 'extractall()' in order to use (delimiter='\t|\n')
         else:
             zf_info_dict[zfile.filename+'_'+qtr] = len(zf.open(zfile.filename).readlines())-1
+            # Extract all members from the archive to the current working directory
             zf.extractall(members = ['tag.txt'])
             try:
                 tag = pd.read_csv('tag.txt', delimiter='\t|\n', encoding='utf-8')         
@@ -119,14 +126,16 @@ for url in url_list:
     sub = sub.drop(sub_cols_to_drop, axis=1)
     sub = sub[['adsh','cik','name','sic','countryba','stprba','cityba',
         'zipba','former','changed','afs','wksi','fye','form','period','fy',
-        'fp','filed','prevrpt','detail','instance','nciks','aciks']]
+        'fp','filed','prevrpt','detail','instance','nciks','aciks']].copy()
     sub['sec_qtr']=qtr
+    
     tag = tag[['tag','version','custom','abstract','datatype','iord','crdr',
-                'tlabel','doc']]
+        'tlabel','doc']].copy()
     tag['sec_qtr']=qtr
+    
     num = zf_files_dict['num.txt']
     num = num[['adsh','tag','version','ddate','qtrs','uom',
-                'coreg','value','footnote']]
+        'coreg','value','footnote']].copy()
     num['sec_qtr']=qtr
 
     # Clear table contents (this is redundent if 'to_sql' specifies replace)
@@ -135,19 +144,29 @@ for url in url_list:
     conn.execute(num_stage.delete())
 
     # Insert to postgres database
-    sub.to_sql(name='sub_stage', con=engine, schema='edgar', 
-                index=False, if_exists='append', method='multi', chunksize=50000)
-    tag.to_sql(name='tag_stage', con=engine, schema='edgar', 
-                index=False, if_exists='append', method='multi', chunksize=50000)
-    num.to_sql(name='num_stage', con=engine, schema='edgar', 
-                index=False, if_exists='append', method='multi', chunksize=50000)
-    print('{} pushed to DB'.format(qtr))
+    if db_write_method == 'pandas':
+        sub.to_sql(name='sub_stage', con=conn, schema='edgar', 
+                    index=False, if_exists='append', method='multi', chunksize=50000)
+        tag.to_sql(name='tag_stage', con=conn, schema='edgar', 
+                    index=False, if_exists='append', method='multi', chunksize=50000)
+        num.to_sql(name='num_stage', con=conn, schema='edgar', 
+                    index=False, if_exists='append', method='multi', chunksize=50000)
+        print('{} pushed to DB'.format(qtr))
+    else:
+        copy_from_stringio(conn=conn, df=sub, table='edgar.sub_stage')
+        copy_from_stringio(conn=conn, df=tag, table='edgar.tag_stage')
+        copy_from_stringio(conn=conn, df=num, table='edgar.num_stage')
 
     # Push to bad data and "final" tables
     sql_file = open("edgar_push_stage_final.sql")
     text_sql = text(sql_file.read())
     conn.execute(text_sql)
     print('{} pushed to final tables'.format(qtr))
+
+    # Clean up
+    conn.execute(sub_stage.delete())
+    conn.execute(tag_stage.delete())
+    conn.execute(num_stage.delete())
 
     # Close zip
     zf.close()

@@ -361,10 +361,14 @@ alter table edgar.edgar_fndmntl_all_tb owner to postgres;
 * 
 ******************************************************************************/
 
+-- Check status
+select sec_qtr, count(*) as n from edgar.edgar_fndmntl_all_tb group by 1 order by 1 desc
+
+-- Insert
 insert into edgar.edgar_fndmntl_all_tb 
 	select * 
 	from edgar.edgar_fndmntl_all_vw
-	where sec_qtr = '2020q4'
+	where sec_qtr = '2021q1'
 ;
 
 select * from edgar.edgar_fndmntl_all_tb where cik in (815556,1459417,771497,1326801);
@@ -386,7 +390,15 @@ select * from edgar.edgar_fndmntl_all_tb where cik in (815556,1459417,771497,132
 ******************************************************************************/
 
 -- Test	
-select * from edgar.edgar_fndmntl_fltr_fn(nonfin_cutoff => 5, fin_cutoff => 5, qrtr => '%q1')
+select * 
+from edgar.edgar_fndmntl_fltr_fn(
+	nonfin_cutoff => 1000
+	,fin_cutoff => 1000
+	,qrtr => '%q1'
+	,bad_data_fltr => true
+	)
+where sec_qtr = '2021q1'
+
 select * from edgar.edgar_fndmntl_fltr_fn(nonfin_cutoff => 20, fin_cutoff =>20, qrtr => null)
 select * from edgar.edgar_fndmntl_fltr_fn(300, 2000, null, false) where cik = 1702780 order by cik, ddate
 

@@ -19,65 +19,23 @@ import datetime as dt
 import time
 import requests
 import yfinance as yf
+from functions import pg_connect, get_alphavantage
+
+# Connect to db
+conn = pg_connect('')
 
 # Parameters
-password = 'Bremor*74'
-apikey = 'J2MWHUOABDSEVS6P'
-data = 'eps'                                    # Data to grab 'prices' or 'eps'
-wait_seconds = 20                               # Wait time before pinging AV server
-update_to_date = dt.datetime(2021,2,16).date()  # If the last date in the database is this date, do nothing
+apikey = ''
+data = 'prices'                                 # Data to grab 'prices' or 'eps'
+wait_seconds = 15                               # Wait time before pinging AV server
+update_to_date = dt.datetime(2021,5,31).date()  # If the last date in the database is this date, do nothing
 batch_size = 350                                # Number of tickers to process per batch
 
-# Connect to postgres database
-# ?gssencmode=disable' per https://stackoverflow.com/questions/59190010/psycopg2-operationalerror-fatal-unsupported-frontend-protocol-1234-5679-serve
-engine = create_engine('postgresql://postgres:'+password+
-                        '@localhost:5432/stock_master?gssencmode=disable')
-conn = engine.connect()
-meta = MetaData(engine)
+
+# SQLAlchemy
+meta = MetaData(conn)
 meta.reflect(schema='alpha_vantage')
 company_tickers = meta.tables['alpha_vantage.shareprices_daily']
-
-
-# Define get_alphavantage function
-def get_alphavantage(symbol, data, outputsize, apikey):
-  
-  base_url = 'https://www.alphavantage.co/query?'
-  
-  if data == 'prices':
-    function='TIME_SERIES_DAILY_ADJUSTED'
-    datatype='csv'
-    url = base_url+'function='+function+'&symbol='+symbol+'&outputsize='+outputsize+'&apikey='+apikey+'&datatype='+datatype
-    df = pd.read_csv(url)
-    df['symbol']=symbol
-    df = df[[
-      'timestamp','open','high','low','close','adjusted_close',
-      'volume','dividend_amount','split_coefficient','symbol'
-      ]]
-    df['capture_date'] = dt.datetime.today().date()
-  elif data == 'eps':
-    function='EARNINGS'
-    url = base_url+'function='+function+'&symbol='+symbol+'&apikey='+apikey
-    resp = requests.get(url)
-    txt = resp.json()['quarterlyEarnings']
-    df = pd.DataFrame(txt)
-    df = df.rename(columns={
-      'fiscalDateEnding': 'report_date'
-      ,'reportedDate': 'date_stamp'
-      ,'reportedEPS': 'reported_eps'
-      ,'estimatedEPS': 'estimated_eps'
-      ,'surprise': 'eps_surprise'
-      ,'surprisePercentage': 'eps_surprise_perc'
-      })
-    df['capture_date'] = dt.datetime.today().date()
-    df['symbol'] = symbol
-    df = df[[
-      'symbol','date_stamp','report_date','reported_eps','estimated_eps',
-      'eps_surprise','eps_surprise_perc','capture_date'
-      ]]
-    cols = ['reported_eps','estimated_eps','eps_surprise','eps_surprise_perc']
-    df[cols] = df[cols].apply(pd.to_numeric, errors='coerce', axis=1)
-  return df
-
 
 
 # Grab tickers from database
@@ -167,6 +125,8 @@ for ticker in ticker_list:
   if data == 'prices':
   
     # Get the last adjusted close from Alphavantage for the date of the last price in the database
+    # THIS CAN RETURN NONE IF THERE IS A GAP IN TRADING (SEE GPOR APRIL TO MAY 2021)
+    # ADD CHECK TO DETERMINE IF THIS IS EMPTY
     df_prices_last_adj_close = df_raw[df_raw['timestamp'] == str(last_date_in_db)]['adjusted_close']
 
     # If the new adjusted close is not different to the existing adjusted close, filter for new dates only
@@ -205,10 +165,10 @@ for ticker in ticker_list:
   # Push to database
   try:
     if data == 'prices' and len(df_raw) > 0:
-      df_raw.to_sql(name='shareprices_daily', con=engine, schema='alpha_vantage', 
+      df_raw.to_sql(name='shareprices_daily', con=conn, schema='alpha_vantage', 
                     index=False, if_exists='append', method='multi', chunksize=50000)
     elif data == 'eps' and len(df_raw) > 0:
-      df_raw.to_sql(name='earnings', con=engine, schema='alpha_vantage', 
+      df_raw.to_sql(name='earnings', con=conn, schema='alpha_vantage', 
                     index=False, if_exists='append', method='multi', chunksize=50000)
     
     iter_count += 1
@@ -236,7 +196,7 @@ if data == 'prices':
   ticker_excl = ticker_excl.loc[(ticker_excl['last_date_in_db'] == ticker_excl['last_av_date']) | (ticker_excl['status'] == 'failed_no_data')]
 
   # Push to database
-  ticker_excl.to_sql(name='ticker_excl', con=engine, schema='alpha_vantage', 
+  ticker_excl.to_sql(name='ticker_excl', con=conn, schema='alpha_vantage', 
                     index=False, if_exists='append', method='multi', chunksize=50000)
 
 
@@ -273,53 +233,21 @@ df = pd.concat([act_df, del_df])
 df = df.rename(columns={'ipoDate': 'ipo_date', 'delistingDate': 'delist_date'})
 df['capture_date'] = dt.datetime.today().date()
 df.loc[df['status'] == 'Active', 'delist_date'] = dt.datetime(9998,12,31).date()
+df = df.loc[df['assetType'] == 'Stock']
+df = df.drop('assetType', axis=1)
+existing = pd.read_sql(sql=text("""select * from alpha_vantage.active_delisted"""), con=conn)
+update_df = pd.concat([df, existing]).drop_duplicates(['symbol','exchange','status'], keep=False)
 
 # Push to database
-df.to_sql(name='active_delisted', con=engine, schema='alpha_vantage', 
-            index=False, if_exists='append', method='multi', chunksize=50000)
+df.to_sql(name='active_delisted', con=conn, schema='alpha_vantage', 
+  index=False, if_exists='append', method='multi', chunksize=50000)
 
 
 
 
 
 
-##############################################################################
-#
-# Grab S&P500 index data
-#
-##############################################################################
 
-df_sp500 = yf.download('^GSPC')
-df_sp500.reset_index(inplace=True)
-df_sp500['dividend_amount'] = 0
-df_sp500['split_coefficient'] = 0
-df_sp500['symbol'] = 'GSPC'
-df_sp500['capture_date'] = dt.datetime.today().date()
-df_sp500.columns = ['timestamp','open','high','low','close','adjusted_close',
-  'volume','dividend_amount','split_coefficient','symbol','capture_date']
-
-# Max date of existing data
-max_date = pd.read_sql(sql=text(
-  """select max(timestamp) 
-  from alpha_vantage.shareprices_daily 
-  where symbol = 'GSPC'"""),
-  con=conn)
-
-# Convert max_date to list
-#max_date = max_date['max'].tolist()
-
-# Convert datetime to date
-df_sp500['timestamp'] = pd.to_datetime(df_sp500['timestamp']).dt.date
-
-# Return only data post existing date
-df_sp500 = df_sp500[df_sp500['timestamp'] > max_date['max'][0]].copy()
-
-# Insert to postgres database
-df_sp500.to_sql(name='shareprices_daily', con=engine, schema='alpha_vantage', 
-                index=False, if_exists='append', method='multi', chunksize=50000)
-
-# Close connection
-conn.close()
 
 
 
