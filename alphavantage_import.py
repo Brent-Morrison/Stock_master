@@ -124,17 +124,21 @@ for ticker in ticker_list:
   
   if data == 'prices':
   
-    # Get the last adjusted close from Alphavantage for the date of the last price in the database
-    # THIS CAN RETURN NONE IF THERE IS A GAP IN TRADING (SEE GPOR APRIL TO MAY 2021)
-    # ADD CHECK TO DETERMINE IF THIS IS EMPTY
+    # Get the last adjusted close downloaded from Alphavantage for the date of the last price in the database
     df_prices_last_adj_close = df_raw[df_raw['timestamp'] == str(last_date_in_db)]['adjusted_close']
 
+    # This can return NONE if there is a gap in trading in trading (see GPOR April to May 2021),
+    # check if empty and assign 0 if so
+    df_prices_last_adj_close_values = df_prices_last_adj_close.values
+    if df_prices_last_adj_close_values.size == 0:
+      df_prices_last_adj_close_values = 0
+
     # If the new adjusted close is not different to the existing adjusted close, filter for new dates only
-    if (update_mode == 'compact') and (abs(np.round(df_prices_last_adj_close.values,2) - np.round(last_adj_close,2)) < 0.03):
+    if (update_mode == 'compact') and (abs(np.round(df_prices_last_adj_close_values,2) - np.round(last_adj_close,2)) < 0.03):
       df_raw = df_raw[df_raw['timestamp'] > str(last_date_in_db)]
 
     # Else if the adjusted close is different, gather the full extract
-    elif (update_mode == 'compact') and (abs(np.round(df_prices_last_adj_close.values,2) - np.round(last_adj_close,2)) >= 0.03):
+    elif (update_mode == 'compact') and (abs(np.round(df_prices_last_adj_close_values,2) - np.round(last_adj_close,2)) >= 0.03):
       df_raw = None
       try:
         df_raw = get_alphavantage(
