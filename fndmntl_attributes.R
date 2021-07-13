@@ -1,4 +1,4 @@
-
+#### ADD A DATE OF LOAD COLUMN TO THE TABLE IN STOCK_MASTER ####
 #==============================================================================
 #
 # Script extracting SEC derived accounting data from the STOCK_MASTER database, 
@@ -35,9 +35,9 @@ end_date <- '2020-12-31'          # Latest date of available data (character str
 lbmadj <- 0.01                    # Lower bound for market cap adjustment (NOT IN USE)
 ubmadj <- 20                      # Upper bound for market cap adjustment (NOT IN USE)
 ts_prior_months = 12              # Months prior to end_date to perform Theil Sen regression on (set to number of months in year)
-months_to_load                    # months prior to start date to load to DB (NOT IN USE)
+#months_to_load                    # months prior to start date to load to DB (NOT IN USE)
 ts_iter = 50                      # Iterations for TS regression random seed starts
-write_to_db <- FALSE              # Boolean - write results to database
+write_to_db <- TRUE              # Boolean - write results to database
                                   # Plot month
 
 

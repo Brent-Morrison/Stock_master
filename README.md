@@ -77,7 +77,7 @@ Each of these attributes are discretised into deciles.  These deciles have ```_d
 
 ## Random ideas
 1. Price return modeling
-    1. Survival analysis assessing risk of drawdown - [link](https://lib.bsu.edu/beneficencepress/mathexchange/06-01/jiayi.pdf)
+    1. Survival analysis assessing risk of drawdown - [link](https://lib.bsu.edu/beneficencepress/mathexchange/06-01/jiayi.pdf), and [link](https://github.com/daynebatten/keras-wtte-rnn)
 2. Dimensionality reduction of returns at portfolio level
     1. PCA
     2. Autoencoders?

@@ -1,23 +1,42 @@
-/******************************************************************************
+/***************************************************************************************************************************
 * 
 * USEFUL QUERIES
 * 
-* 
-******************************************************************************/
+***************************************************************************************************************************/
+-- List largest objects
+select relname, relpages
+from pg_class
+order by relpages desc;
 
-select * from alpha_vantage.shareprices_daily where symbol = 'ESL' and "timestamp" between '2017-01-01' and '2020-12-31' order by "timestamp"
+select pg_size_pretty(pg_database_size('geekdb'))
+
+select * from alpha_vantage.active_delisted
+
+select * from edgar.sub where adsh in ('0000006955-21-000003','0000006955-21-000012')
+select sec_qtr , count(*) as n from edgar.num group by 1
+
+select * from alpha_vantage.shareprices_daily where symbol = 'GPOR' and "timestamp" between '2020-12-31' and '2021-06-30' order by "timestamp"
 
 select symbol, max("timestamp") as max_date from alpha_vantage.shareprices_daily group by 1 order by 2 desc
 
 select date_stamp, count(*) as n from access_layer.return_attributes group by 1 order by 1 desc
 
-delete from alpha_vantage.ticker_excl where status = 'failed_no_data' and last_date_in_db = '2020-11-03'  --ticker in ('ZBRA','ZG','ZION','ZNGA','ZTS')  --last_date_in_db = '2020-11-02'
+select * from alpha_vantage.ticker_excl where status = 'failed_no_data' and last_date_in_db = '2021-04-30'
+delete from alpha_vantage.ticker_excl where status = 'failed_no_data' and last_date_in_db = '2021-04-30'  --ticker in ('ZBRA','ZG','ZION','ZNGA','ZTS')  --last_date_in_db = '2020-11-02'
 
+-- Tickers to update
 select * from alpha_vantage.tickers_to_update 
 where symbol not in (select ticker from alpha_vantage.ticker_excl)
-and last_date_in_db != '2020-12-31'
+and last_date_in_db <= '2021-05-31'
+
+select * from alpha_vantage.ticker_excl
 
 select stmt, tag, count(*) from edgar.pre where tag like('%epreciat%') group by 1,2
+
+-- Last S&P 500 date
+select max(timestamp) from alpha_vantage.shareprices_daily where symbol = 'GSPC'
+
+select * from edgar.qrtly_fndmntl_ts_vw where date_available >= '2020-12-31'
 
 /******************************************************************************
 * 
@@ -64,13 +83,14 @@ ticker
 ,min(date) as min_date
 ,max(date) as max_date
 ,count(*) 
-select * from simfin.us_shareprices_daily
-where 1=1
-and ticker = 'AAPL'
+from simfin.us_shareprices_daily
+where 1 = 1
+--and ticker = 'AAPL'
 group by 1
 order by 1;
 
----------------------------------------------
+----------------------------------------------------------------------------------------------------------------------------
+
 
 select 
 symbol
@@ -79,11 +99,10 @@ symbol
 ,count(*) as records
 from alpha_vantage.shareprices_daily 
 where 1 = 1
-and symbol = 'AAPL'
+--and symbol = 'AAPL'
 group by symbol
 order by symbol
-
----------------------------------------------
+----------------------------------------------------------------------------------------------------------------------------
 
 select 
 symbol
@@ -93,16 +112,17 @@ symbol
 ,count(*) as records
 from alpha_vantage.shareprices_daily 
 where 1 = 1
-and symbol = 'AAPL'
+and capture_date = '2021-06-05'
+--and symbol = 'AAPL'
 group by 1,2
 order by 1,2
 
 
----------------------------------------------
+----------------------------------------------------------------------------------------------------------------------------
 
 select max(timestamp) from alpha_vantage.shareprices_daily where symbol = 'GSPC'
 
----------------------------------------------
+----------------------------------------------------------------------------------------------------------------------------
 
 -- Tickers in simfin but not in alpha vantage
 select 
@@ -116,7 +136,7 @@ and ticker not in
 	)
 order by 1;
 
---------------------------------------------------		
+----------------------------------------------------------------------------------------------------------------------------		
 
 -- Edgar CIK strings with multiple tickers
 select * from 
@@ -180,7 +200,7 @@ full outer join alpha_vantage. sp5
 on ed4.ed_ticker = sp5.symbol
 ;
 
---------------------------------------------------	
+----------------------------------------------------------------------------------------------------------------------------
 
 -- various
 select * from alpha_vantage.sp_500_dlta
@@ -356,8 +376,10 @@ select * from edgar.edgar_fndmntl_all_tb where (shares_cso > 0 and shares_cso < 
 select * from alpha_vantage.tickers_to_update where symbol not in (select ticker from alpha_vantage.ticker_excl)
 delete from alpha_vantage.ticker_excl where status = 'failed_no_data'
 select distinct sec_qtr from edgar.num
-SELECT pg_database_size('postgres')
-SELECT pg_size_pretty(pg_database_size('postgres'))
+
+-- Determine database size
+select pg_database_size('postgres')
+select pg_size_pretty(pg_database_size('postgres'))
 select pg_size_pretty(pg_table_size('stock_master.edgar.num'))
 
 
@@ -425,83 +447,25 @@ select date_stamp, count(*) from access_layer.return_attributes group by 1
 select * from alpha_vantage.earnings where symbol = 'ARW' and date_stamp = '2020-11-23'
 select symbol, count(*) as records from alpha_vantage.earnings group by 1 order by 1
 
-select 
-rtn_ari_12m_dcl 
-,round(avg(rtn_ari_12m),2) as factor_rtn
-,round(avg(fwd_rtn_1m),4) as fwd_rtn_1m 
-from access_layer.return_attributes 
-group by 1
-order by 1
+select * from access_layer.return_attributes 
 
+SELECT distinct tag FROM edgar.pre where stmt = 'IS'
+select distinct sec_qtr from edgar.pre
 
-
-select * from (
-select fu.*, lag(combined_rank) over (partition by cik order by valid_year) as rank_lag
-from reference.fundamental_universe fu
-) t1
-where rank_lag > 900 and combined_rank < 900
-
-
-
-
-with prices as 
+CREATE TABLE test.test_table
 	(
-		select 
-		"timestamp"
-		,symbol
-		,close
-		,adjusted_close
-		,volume
-		,(date_trunc('month', "timestamp") + interval '1 month - 1 day')::date as me_date
-		from 
-			(	-- Capture most recent version of price data (i.e., split & dividend adjusted)
-				select 
-				sd.* 
-				,row_number() over (partition by "timestamp", symbol order by capture_date desc) as row_num
-				from alpha_vantage.shareprices_daily sd 
-				where 1 = 1 --"timestamp" > '2018-01-01'
-			) t1
-		where row_num = 1
-		and symbol != 'GSPC'
+		symbol text
+		,sector int
+		,date_stamp date
+		,"close" numeric
+		,adjusted_close numeric
+		,volume numeric
+		,sp500 numeric
 	)
-
-,sp_500 as 
-	(
-		select 
-		"timestamp",
-	    adjusted_close as sp500
-	    from alpha_vantage.shareprices_daily
-	    where symbol = 'GSPC'
-	    --and "timestamp" > '2018-01-01'
-    )
-
-,universe as 
-	(
-	select *
-	from reference.universe_time_series_fn(nonfin_cutoff => 900, fin_cutoff => 100, valid_year_param => 2019)
-	where symbol in ('BGNE','EBIX','KOSN','TUSK')
-	) 
-	
-select
-	prices.symbol
-	,universe.sector
-	,prices."timestamp" as date_stamp 
-	,prices."close"
-	,prices.adjusted_close
-	,prices.volume
-	,sp_500.sp500
-	,valid_year_ind
-from 
-	universe
-	left join prices
-	on prices.symbol = universe.symbol
-	and universe.date_stamp = prices.me_date
-	left join sp_500
-	on prices."timestamp" = sp_500."timestamp"
-	order by 1,3 
 ;
-
 	
+select * from test.test_table
+
 select 
 vw.* 
 ,fn.*
@@ -516,6 +480,28 @@ inner join
 on fn.date_stamp = (date_trunc('month', vw.date_stamp) + interval '1 month - 1 day')::date
 and fn.symbol = vw.symbol
 
+
+
+-- VALUATION MODEL DATA
+select 
+date_stamp
+,sector
+,ticker 
+,mkt_cap
+,roe
+,total_assets 
+,total_equity 
+from access_layer.fundamental_attributes
+where 1 = 1 
+--and date_stamp in ('2020-06-30','2020-12-31') 
+and ticker = 'AAPL'
+order by 1,2,3,4,5
+
+select date_available, count(*) from edgar.qrtly_fndmntl_ts_vw group by 1 order by 1 --where ticker ='AAPL'
+
+select date_stamp, count(*) from access_layer.fundamental_attributes group by 1 order by 1
+select date_stamp, count(*) from alpha_vantage.monthly_price_ts_vw where date_stamp >= '2018-09-01' and date_stamp <= '2020-12-31' group by 1 order by 1
+select date_stamp, count(*) from alpha_vantage.daily_price_ts_vw group by 1 order by 1
 
 
 

@@ -18,11 +18,49 @@ import numpy as np
 import datetime as dt
 import time
 import requests
+import time
 import yfinance as yf
-from functions import pg_connect, get_alphavantage
+from functions import pg_connect, get_alphavantage, update_av_data
+
 
 # Connect to db
-conn = pg_connect('')
+conn = pg_connect('Bremor*74')
+
+
+# Update function
+update_df = update_av_data(
+  apikey='J2MWHUOABDSEVS6P', 
+  conn=conn, 
+  update_to_date='2021-05-31', 
+  data='prices', 
+  wait_seconds=15, 
+  batch_size=350
+  )
+
+
+# Filter resultant data frame for error
+ticker_excl = update_df.loc[
+  (update_df['last_date_in_db'] == update_df['last_av_date']) | 
+  (update_df['status'] == 'failed_no_data') | 
+  (update_df['status'] == 'nil_records_no_update')
+  ]
+
+# Push to database
+ticker_excl.to_sql(name='ticker_excl', con=conn, schema='alpha_vantage', 
+  index=False, if_exists='append', method='multi', chunksize=50000)
+
+
+# Close connection
+conn.close()
+
+
+
+
+
+
+
+
+# Original script ----------------------------------------------------------------------------------------------------------
 
 # Parameters
 apikey = ''
