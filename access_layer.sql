@@ -44,11 +44,13 @@ create table access_layer.fundamental_attributes
 		, cash_ratio numeric
 		, ttm_earnings numeric
 		, ttm_earnings_max numeric
+		, total_equity_cln numeric
 		, asset_growth numeric
 		, roa numeric
 		, roe numeric
 		, leverage numeric
 		, other_ca_ratio numeric
+		, sue numeric
 		, intang_ratio numeric
 		, close numeric
 		, adjusted_close numeric

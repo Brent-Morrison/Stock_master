@@ -524,7 +524,7 @@ create or replace function edgar.edgar_fndmntl_fltr_fn
 ******************************************************************************/
 	
 --Test
-select * from edgar.qrtly_fndmntl_ts_vw where ticker in ('BGNE','EBIX','TUSK')
+select * from edgar.qrtly_fndmntl_ts_vw where ticker in ('AAPL','BGNE','EBIX','TUSK') order by 5,2 
 
 create or replace view edgar.qrtly_fndmntl_ts_vw as 
 

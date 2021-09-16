@@ -500,10 +500,26 @@ order by 1,2,3,4,5
 select date_available, count(*) from edgar.qrtly_fndmntl_ts_vw group by 1 order by 1 --where ticker ='AAPL'
 
 select date_stamp, count(*) from access_layer.fundamental_attributes group by 1 order by 1
-select date_stamp, count(*) from alpha_vantage.monthly_price_ts_vw where date_stamp >= '2018-09-01' and date_stamp <= '2020-12-31' group by 1 order by 1
+select date_stamp, count(*) from access_layer.return_attributes group by 1 order by 1
+select * from alpha_vantage.monthly_price_ts_vw where date_stamp >= '2018-09-01' and date_stamp <= '2020-12-31' group by 1 order by 1
 select date_stamp, count(*) from alpha_vantage.daily_price_ts_vw group by 1 order by 1
 
 
+-- REMOVE DUPLICATES
+delete 
+from access_layer.return_attributes t1
+using access_layer.return_attributes t2
+where t1.ctid < t2.ctid
+and t1.date_stamp = t2.date_stamp
+and t1.symbol = t2.symbol
+
+select 
+	ctid
+	,row_number() over (partition by symbol, date_stamp order by date_stamp) as row_num
+	,ra.*
+	from access_layer.return_attributes ra
+) t1
+where t1.row_num > 1 
 
 
 -- DOLLAR VOLUME UNIVERSE
@@ -547,3 +563,145 @@ from (
 order by 2,5
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+select * from alpha_vantage.price_ts_fn(valid_year_param => 2020, nonfin_cutoff => 10, fin_cutoff => 10)
+
+create or replace function alpha_vantage.price_ts_fn
+
+(
+	fin_cutoff 			int 	default 100
+	,nonfin_cutoff 		int 	default 900
+	,valid_year_param	int		default 2021
+) 
+
+returns table 
+(
+	symbol_ 			text
+	,sector_ 			text
+	,date_stamp_		date
+	,"close_"			numeric
+	,adjusted_close_	numeric
+	,volume_			numeric
+	,sp500_				numeric
+	,valid_year_ind_ 	text
+) as $$
+
+with prices as 
+	(
+		select 
+		"timestamp"
+		,symbol
+		,close
+		,adjusted_close
+		,volume
+		from 
+			(	-- Capture most recent version of price data (i.e., split & dividend adjusted)
+				select 
+				sd.* 
+				,row_number() over (partition by "timestamp", symbol order by capture_date desc) as row_num
+				from alpha_vantage.shareprices_daily sd 
+			) t1
+		where row_num = 1
+		and symbol != 'GSPC'
+	)
+
+,sp_500 as 
+	(
+		select 
+		"timestamp",
+	    adjusted_close as sp500
+	    from alpha_vantage.shareprices_daily spd
+	    inner join 
+			(
+				select 
+				max("timestamp") as last_trade_date
+				from alpha_vantage.shareprices_daily
+				where symbol = 'GSPC'
+				group by date_trunc('month', "timestamp") 	
+			) ltd
+	    on spd."timestamp" = ltd.last_trade_date
+		where symbol = 'GSPC'
+    )
+
+,ind_ref as 
+	(
+		select
+		ind.ticker 
+		,lk.lookup_val4 as sector
+		,case -- see TO DO
+			when ind.sic::int between 6000 and 6500 then 'financial' 
+			else 'non_financial' end as fin_nonfin
+		from reference.ticker_cik_sic_ind ind
+		left join reference.lookup lk
+		on ind.simfin_industry_id = lk.lookup_ref::int
+		and lk.lookup_table = 'simfin_industries' 
+	)	
+	
+,universe as 
+	(	
+		select 
+			t.ticker 
+			,t.sic
+			,i.sector
+			,f.valid_year 
+			,t.ipo_date as start_date
+			,t.delist_date as end_date
+			,case 
+				when lag(f.valid_year) over (partition by t.ticker order by f.valid_year) is null then make_date(f.valid_year-2,1,1) 
+				else make_date(f.valid_year,1,1) 
+				end as start_year
+			,make_date(f.valid_year,12,31) as end_year
+		from 
+			reference.fundamental_universe f
+			left join reference.ticker_cik_sic_ind t
+			on f.cik = t.cik
+			left join ind_ref i
+			on t.ticker = i.ticker
+		where ( 
+			(i.fin_nonfin  = 'financial' and f.combined_rank <= $1) or 
+			(i.fin_nonfin != 'financial' and f.combined_rank <= $2)
+			)
+			and f.valid_year = $3
+	)
+	
+select
+	prices.symbol
+	,universe.sector
+	,prices."timestamp" as date_stamp 
+	,prices."close"
+	,prices.adjusted_close
+	,prices.volume
+	,sp_500.sp500
+	,case when extract(year from prices."timestamp") = universe.valid_year then 'valid' else 'invalid' end as valid_year_ind
+from 
+	prices
+	inner join universe
+	on prices.symbol = universe.ticker
+	and prices."timestamp" between universe.start_date and universe.end_date
+	and prices."timestamp" between universe.start_year and universe.end_year
+	inner join sp_500
+	on prices."timestamp" = sp_500."timestamp" 
+order by 1,3 
+;
+
+$$ language sql immutable
+;

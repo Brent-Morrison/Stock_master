@@ -165,19 +165,19 @@ create or replace view alpha_vantage.tickers_to_update as
 * TO DO:
 * - assess if the industry reference in "ind_ref" CTE should reference the simfin industry
 *   (same as for edgar.qrtly_fndmntl_ts_vw)
-* - does this need to include a valid year indicator so that when results are returned
-*   for the burn in period, these are flagged appropriately (ie., for exclusion from analysis)
-*   (same as for edgar.qrtly_fndmntl_ts_vw)
+* - see note around parameters, create SQl function in R to alleviate (Postgres function slow)
 *  
 ******************************************************************************/
 
--- Test
+-- TEST
 -- EBIX=814549, rank will exclude in 2020
 -- TUSK=1679268 is valid only for 2019
 -- BGNE=1651308 rank will include from 2019
+
 select * 
 from alpha_vantage.daily_price_ts_vw 
-where symbol in ('ADT','BGNE','EBIX','KOSN','TUSK') 
+where 1 = 1 
+and symbol in ('ADT','BGNE','EBIX','KOSN','TUSK') 
 and date_stamp > '2013-01-01'
 
 create index shareprices_daily_idx on alpha_vantage.shareprices_daily (symbol, "timestamp")
@@ -274,16 +274,31 @@ from
 	and prices."timestamp" between universe.start_year and universe.end_year
 	left join sp_500
 	on prices."timestamp" = sp_500."timestamp" 
---where prices.symbol in ('BGNE','EBIX','KOSN','TUSK') -------
 order by 1,3 
 ;
 
-----------------------------------------------------------------------------------------------------------------------
--- As function
--- https://www.endpoint.com/blog/2008/12/11/why-is-my-function-slow
--- https://stackoverflow.com/questions/35914518/postgres-function-slower-than-query-postgres-8-4
 
-with t1 as (select * from alpha_vantage.daily_price_ts_fn(valid_year_param => 2019, nonfin_cutoff => 900, fin_cutoff => 100)) select * from t1 where t in ('ADT','BGNE','EBIX','KOSN','TUSK')
+
+/******************************************************************************
+* 
+* alpha_vantage.daily_price_ts_fn
+* 
+* DESCRIPTION:
+* Create function to extract monthly price data for defined universe 
+* 
+* https://www.endpoint.com/blog/2008/12/11/why-is-my-function-slow
+* https://stackoverflow.com/questions/35914518/postgres-function-slower-than-query-postgres-8-4 
+* 
+* 
+* TO DO:
+* - assess if the industry reference in "ind_ref" CTE should reference the simfin industry
+*   (same as for edgar.qrtly_fndmntl_ts_vw)
+* - see note around parameters, create SQl function in R to alleviate (Postgres function slow)
+*  
+******************************************************************************/
+
+select * from alpha_vantage.daily_price_ts_fn(valid_year_param => 20120, nonfin_cutoff => 10, fin_cutoff => 10)
+where symbol_ in ('ADT','BGNE','EBIX','KOSN','TUSK')
 
 create or replace function alpha_vantage.daily_price_ts_fn
 
@@ -305,7 +320,7 @@ returns table
 	,valid_year_ind_ 	text
 )
 
-language plpgsql
+language plpgsql immutable
 
 as $$
 
@@ -338,7 +353,7 @@ with prices as
 		"timestamp",
 	    adjusted_close as sp500
 	    from alpha_vantage.shareprices_daily
-	    where symbol = 'GSPC'
+		where symbol = 'GSPC'
     )
 
 ,ind_ref as 
@@ -376,13 +391,13 @@ with prices as
 			left join ind_ref i
 			on t.ticker = i.ticker
 		where ( 
-			(i.fin_nonfin  = 'financial' and f.combined_rank < fin_cutoff) or 
-			(i.fin_nonfin != 'financial' and f.combined_rank < nonfin_cutoff)
+			(i.fin_nonfin  = 'financial' and f.combined_rank <= fin_cutoff) or 
+			(i.fin_nonfin != 'financial' and f.combined_rank <= nonfin_cutoff)
 			)
 			and f.valid_year = valid_year_param
-		order by
-			t.ticker 
-			,f.valid_year
+		--order by
+		--	t.ticker 
+		--	,f.valid_year
 	)
 	
 select
@@ -400,15 +415,164 @@ from
 	on prices.symbol = universe.ticker
 	and prices."timestamp" between universe.start_date and universe.end_date
 	and prices."timestamp" between universe.start_year and universe.end_year
-	left join sp_500
+	inner join sp_500
 	on prices."timestamp" = sp_500."timestamp" 
---where prices.symbol in ('BGNE','EBIX','KOSN','TUSK') -------
 order by 1,3 
 
 ;
 end; $$
 
 
+
+
+
+/******************************************************************************
+* 
+* alpha_vantage.monthy_price_ts_fn
+* 
+* DESCRIPTION:
+* Create function to extract monthly price data for defined universe 
+* 
+* https://www.endpoint.com/blog/2008/12/11/why-is-my-function-slow
+* https://stackoverflow.com/questions/35914518/postgres-function-slower-than-query-postgres-8-4
+* 
+* 
+* TO DO:
+* - assess if the industry reference in "ind_ref" CTE should reference the simfin industry
+*   (same as for edgar.qrtly_fndmntl_ts_vw)
+*  
+******************************************************************************/
+
+select * from alpha_vantage.monthly_price_ts_fn(valid_year_param => 2017, nonfin_cutoff => 10, fin_cutoff => 10)
+where symbol_ in ('ADT','BGNE','EBIX','KOSN','TUSK')
+
+create or replace function alpha_vantage.monthly_price_ts_fn
+
+(
+	fin_cutoff 			int 	default 100
+	,nonfin_cutoff 		int 	default 900
+	,valid_year_param	int		default 2021
+) 
+
+returns table 
+(
+	symbol_ 			text
+	,sector_ 			text
+	,date_stamp_		date
+	,"close_"			numeric
+	,adjusted_close_	numeric
+	,volume_			numeric
+	,sp500_				numeric
+	,valid_year_ind_ 	text
+)
+
+language plpgsql immutable
+
+as $$
+
+begin
+
+return query
+
+with prices as 
+	(
+		select 
+		"timestamp"
+		,symbol
+		,close
+		,adjusted_close
+		,volume
+		from 
+			(	-- Capture most recent version of price data (i.e., split & dividend adjusted)
+				select 
+				sd.* 
+				,row_number() over (partition by "timestamp", symbol order by capture_date desc) as row_num
+				from alpha_vantage.shareprices_daily sd 
+			) t1
+		where row_num = 1
+		and symbol != 'GSPC'
+	)
+
+,sp_500 as 
+	(
+		select 
+		"timestamp",
+	    adjusted_close as sp500
+	    from alpha_vantage.shareprices_daily spd
+	    inner join 
+			(
+				select 
+				max("timestamp") as last_trade_date
+				from alpha_vantage.shareprices_daily
+				where symbol = 'GSPC'
+				group by date_trunc('month', "timestamp") 	
+			) ltd
+	    on spd."timestamp" = ltd.last_trade_date
+		where symbol = 'GSPC'
+    )
+
+,ind_ref as 
+	(
+		select
+		ind.ticker 
+		,lk.lookup_val4 as sector
+		,case -- see TO DO
+			when ind.sic::int between 6000 and 6500 then 'financial' 
+			else 'non_financial' end as fin_nonfin
+		from reference.ticker_cik_sic_ind ind
+		left join reference.lookup lk
+		on ind.simfin_industry_id = lk.lookup_ref::int
+		and lk.lookup_table = 'simfin_industries' 
+	)	
+	
+,universe as 
+	(	
+		select 
+			t.ticker 
+			,t.sic
+			,i.sector
+			,f.valid_year 
+			,t.ipo_date as start_date
+			,t.delist_date as end_date
+			,case 
+				when lag(f.valid_year) over (partition by t.ticker order by f.valid_year) is null then make_date(f.valid_year-2,1,1) 
+				else make_date(f.valid_year,1,1) 
+				end as start_year
+			,make_date(f.valid_year,12,31) as end_year
+		from 
+			reference.fundamental_universe f
+			left join reference.ticker_cik_sic_ind t
+			on f.cik = t.cik
+			left join ind_ref i
+			on t.ticker = i.ticker
+		where ( 
+			(i.fin_nonfin  = 'financial' and f.combined_rank <= fin_cutoff) or 
+			(i.fin_nonfin != 'financial' and f.combined_rank <= nonfin_cutoff)
+			)
+			and f.valid_year = valid_year_param
+	)
+	
+select
+	prices.symbol
+	,universe.sector
+	,prices."timestamp" as date_stamp 
+	,prices."close"
+	,prices.adjusted_close
+	,prices.volume
+	,sp_500.sp500
+	,case when extract(year from prices."timestamp") = universe.valid_year then 'valid' else 'invalid' end as valid_year_ind
+from 
+	prices
+	inner join universe
+	on prices.symbol = universe.ticker
+	and prices."timestamp" between universe.start_date and universe.end_date
+	and prices."timestamp" between universe.start_year and universe.end_year
+	inner join sp_500
+	on prices."timestamp" = sp_500."timestamp" 
+order by 1,3 
+
+;
+end; $$
 
 
 

@@ -7,14 +7,14 @@
 # TO DO
 # 1. Limit TS prediction to zero and 110% of the max mkt cap
 # 2. Impute ROE for stocks with negative equity from ROA
-# 3. Assign small positive equity value for negative equity stocks to return log(bp)
+# 3. Assign small positive equity value for negative equity stocks to return log-bp (5% / 10% of assets)) 
 #
 # ISSUES
 #
 # Asset growth can be very large (think mergers & acquisitions).  We do not want to remove outliers as suspected spurious, rather
 # winsorise to allow for better statistical properties.
 #
-# EQT is only a divestiture adjustment as opposed to stock split - the split impacts price only, not shares o/s
+# EQT - is a divestiture adjustment as opposed to stock split - the split impacts price only, not shares o/s
 # https://www.fool.com/investing/2018/11/13/heres-how-eqt-corporation-stock-fell-46-today-but.aspx
 # CRC - incorrect adjustment to shares O/s.  Implemented rule to toggle simfin source which has split adjusted shares o/s.
 # RIG - incorrect shares o/s adjustment applied Oct-2020 with low  
@@ -31,14 +31,14 @@
 start_time <- Sys.time()
 
 # Parameters
-end_date <- '2020-12-31'          # Latest date of available data (character string for SQL)
+end_date <- '2017-12-31'          # Latest date of available data (character string for SQL)
 lbmadj <- 0.01                    # Lower bound for market cap adjustment (NOT IN USE)
 ubmadj <- 20                      # Upper bound for market cap adjustment (NOT IN USE)
 ts_prior_months = 12              # Months prior to end_date to perform Theil Sen regression on (set to number of months in year)
-#months_to_load                    # months prior to start date to load to DB (NOT IN USE)
+months_to_load = 12                # months prior to start date to load to DB (TO BE ADDED AS FILTER TO df_to_db)
 ts_iter = 50                      # Iterations for TS regression random seed starts
-write_to_db <- TRUE              # Boolean - write results to database
-                                  # Plot month
+write_to_db <- TRUE               # Boolean - write results to database
+ts_regr <- FALSE                  # Run Multivariate Thiel Sen regression from Python
 
 
 # Packages
@@ -70,15 +70,11 @@ library(RPostgres)
 #
 #==============================================================================
 
-# Connect to postgres database
-con <- dbConnect(
-  RPostgres::Postgres(),
-  host      = 'localhost',
-  port      = '5432',
-  dbname    = 'stock_master',
-  user      = rstudioapi::askForPassword("User"),
-  password  = rstudioapi::askForPassword("Password")
-  )
+# Source functions
+source("C:/Users/brent/Documents/VS_Code/postgres/postgres/return_attributes.R")
+
+# Connect to db
+con <- stock_master_connect()
 
 
 # Parameters and query string, dates to be formatted as character string
@@ -88,6 +84,8 @@ start_date <- paste(
   '01', 
   sep = '-')
 
+# Year
+valid_year <- as.character(year(end_date))
 
 # Read data and ensure correct ordering
 sql1 <- "select * from edgar.qrtly_fndmntl_ts_vw where date_available >= ?start_date and date_available <= ?end_date"
@@ -96,10 +94,13 @@ qry1 <- dbSendQuery(conn = con, statement = sql1)
 qrtly_fndmntl_ts_raw <- dbFetch(qry1)
 qrtly_fndmntl_ts_raw <- arrange(qrtly_fndmntl_ts_raw, ticker, report_date)
 
-sql2 <- "select * from alpha_vantage.monthly_price_ts_vw where date_stamp >= ?start_date and date_stamp <= ?end_date"
-sql2 <- sqlInterpolate(conn = con, sql = sql2, start_date = start_date, end_date = end_date)
+sql2 <- "select * from alpha_vantage.monthly_price_ts_fn(valid_year_param => ?valid_year, nonfin_cutoff => 900, fin_cutoff => 100)"
+sql2 <- sqlInterpolate(conn = con, sql = sql2, valid_year = valid_year)
+#sql2 <- "select * from alpha_vantage.monthly_price_ts_vw where date_stamp >= ?start_date and date_stamp <= ?end_date"
+#sql2 <- sqlInterpolate(conn = con, sql = sql2, start_date = start_date, end_date = end_date)
 qry2 <- dbSendQuery(conn = con, statement = sql2) 
 monthly_price_ts_raw <- dbFetch(qry2)
+names(monthly_price_ts_raw) <- gsub("_$", "", names(monthly_price_ts_raw))
 
 sql3 <- "select * from alpha_vantage.splits_vw where date_stamp >= ?start_date and date_stamp <= ?end_date"
 sql3 <- sqlInterpolate(conn = con, sql = sql3, start_date = start_date, end_date = end_date)
@@ -118,7 +119,7 @@ monthly_splits_raw <- dbFetch(qry3)
 #
 #==============================================================================
 
-# Stocks with missing data
+# Stocks with missing data - includes indicator for missing qtr end (1 = non-consecutive qtrs)
 qrtly_fndmntl_excl <- qrtly_fndmntl_ts_raw %>% 
   group_by(ticker) %>% 
   mutate(
@@ -141,15 +142,23 @@ qrtly_fndmntl_excl <- qrtly_fndmntl_ts_raw %>%
   ))
 
 
+# CHANGE BELOW PLOT SO THAT OBJECT IS RETURNED BY FUNCTION
+
 # Missingness plot 
-qrtly_fndmntl_excl %>% filter(year(report_date) == year(end_date)) %>% select(-date_available, -shares_cso, -shares_ecso) %>% vis_miss()
+qrtly_fndmntl_excl %>% 
+  filter(year(report_date) == year(end_date)) %>% 
+  select(-date_available, -shares_cso, -shares_ecso) %>% 
+  vis_miss()
 
 
 # Co-occurance plot 
-qrtly_fndmntl_excl %>% filter(year(report_date) == year(end_date)) %>% select(-shares_cso, -shares_ecso) %>% gg_miss_upset()
+qrtly_fndmntl_excl %>% 
+  filter(year(report_date) == year(end_date)) %>% 
+  select(-shares_cso, -shares_ecso) %>% 
+  gg_miss_upset()
 
 
-# Data for bar plot
+# Data for bar plot (fnl = ??)
 fnl_initial_popn <- qrtly_fndmntl_ts_raw %>% 
   filter(year(report_date) == year(end_date)) %>% 
   select(ticker) %>% n_distinct()
@@ -173,21 +182,21 @@ excluded <- qrtly_fndmntl_excl %>%
   filter(year(report_date) == year(end_date)) %>% 
   select(
     ticker,
+    report_date,
     cash_equiv_st_invest, 
     total_assets, 
     total_equity, 
     shares_os,
     miss_qtr_ind
   ) %>%  
-  filter_all(any_vars(is.na(.))) %>% 
+  filter_all(any_vars(is.na(.)))
   #filter(across(everything(), ~is.na(.x))) %>% 
-  select(ticker) %>% 
-  distinct()
+  
 
-
-# Exclude tickers with irreplaceable missing values (current year) and impute other missing values
+# Exclude tickers with irreplaceable missing values (current year) and impute other missing values,
+# excluded tickers are in the 'excluded' data frame, hence anti-join 
 qrtly_fndmntl_ts <- qrtly_fndmntl_ts_raw %>% 
-  anti_join(excluded, by = 'ticker') %>% 
+  anti_join(distinct(excluded, ticker), by = 'ticker') %>% 
   group_by(sector) %>% 
   mutate(
     cash_ratio = mean(cash_equiv_st_invest / total_assets, na.rm = TRUE),
@@ -196,6 +205,7 @@ qrtly_fndmntl_ts <- qrtly_fndmntl_ts_raw %>%
   ungroup()
 
 
+# Count of distinct list of excluded stocks
 fnl_miss_qtr_chk <- qrtly_fndmntl_ts %>% 
   filter(year(report_date) == year(end_date)) %>% 
   select(ticker) %>% 
@@ -210,20 +220,22 @@ fnl_miss_qtr_chk <- qrtly_fndmntl_ts %>%
 # Re ttm earning ex worst quarter 'ttm_earnings_max' - https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3443289
 #
 #==============================================================================
-
+  
 qrtly_fndmntl_ts <- qrtly_fndmntl_ts %>% 
   group_by(ticker) %>% 
   mutate(
     ttm_earnings     = -slide_dbl(net_income_qtly, sum, .before = 3, .complete = TRUE),
     ttm_earnings_max = -slide_dbl(net_income_qtly, ~sum(.[. != max(.)]), .before = 3, .complete = TRUE) / 3 * 4,
+    total_equity_cln = if_else(total_equity >= 0, -total_assets * 0.1, total_equity),
     asset_growth     = (total_assets-lag(total_assets))/lag(total_assets),
     roa              = ttm_earnings / slide_dbl(total_assets, mean, .before = 4, .complete = TRUE),
-    roe              = ttm_earnings / slide_dbl(total_equity, mean, .before = 4, .complete = TRUE),
+    roe              = ttm_earnings / slide_dbl(total_equity_cln, mean, .before = 4, .complete = TRUE),
     leverage         = -total_liab / total_assets,
     cash_ratio       = cash_equiv_st_invest / total_assets,
     other_ca_ratio   = (total_cur_assets - cash_equiv_st_invest) / total_assets,
-    intang_ratio     = intang_asset / total_assets
+    intang_ratio     = intang_asset / total_assets,
     # STANDARDISED UNEXPECTED EARNINGS TO GO HERE
+    sue              = 1
     # SUE denotes Standardized Unexpected Earnings, and is calculated as the change in quarterly earnings 
     # divided by from its value four quarters ago divided by the standard deviation of this change in
     # quarterly earnings over the prior eight quarters
@@ -247,7 +259,7 @@ date_range <-
     unit = 'month') - 1
 
 
-# Expand dates to monthly periodicity
+# Expand dates to monthly periodicity and fill forward
 monthly_fndmntl_ts <- qrtly_fndmntl_ts %>% 
   group_by(ticker) %>% 
   complete(date_available = date_range, ticker) %>% 
@@ -260,11 +272,12 @@ monthly_fndmntl_ts <- qrtly_fndmntl_ts %>%
 monthly_price_ts_raw$date_available <- ceiling_date(monthly_price_ts_raw$date_stamp, unit = 'month') - 1
 
 
-# Join price and split data 
+# Join price and split data
+# CONSIDER CHANGNG INNER JOIN SO EXCLUSION IMPLICIT IN THIS OPERATION ARE IDENTIFIED (LEFT JOIN AND FILTER NA) 
 monthly_fndmntl_ts <- 
   inner_join(
     x = monthly_fndmntl_ts, 
-    y = monthly_price_ts_raw, 
+    y = select(monthly_price_ts_raw, symbol, date_stamp, close, adjusted_close, volume, date_available), 
     by = c('date_available' = 'date_available', 'ticker' = 'symbol')
     ) %>% 
   left_join(
@@ -303,6 +316,7 @@ monthly_fndmntl_ts <-
   group_by(ticker) %>% 
   
   # DOCUMENT THE LOGIC BELOW
+  # Account for splits - required for mkt cap calc. pre SEC data reporting of new share count
   mutate(
     split_adj_start  = if_else(!is.na(split_coef), 1, 0),
     split_adj_end1   = if_else(cumsum(replace_na(split_adj_start, 0)) > 0 & 
@@ -316,7 +330,7 @@ monthly_fndmntl_ts <-
     split_adj        = if_else(split_adj_ind == 1, cumsum(replace_na(split_coef, 0)), 1),
     shares_os        = if_else(src == 'simfin', shares_os_unadj, shares_os_unadj * split_adj),
     mkt_cap          = if_else(src == 'simfin', round(shares_os * adjusted_close, 3), round(shares_os * close, 3)),
-    book_price       = round(-total_equity / mkt_cap, 3)
+    book_price       = round(-total_equity_cln / mkt_cap, 3)
     ) %>% 
   ungroup() %>% 
   mutate(
@@ -330,7 +344,10 @@ monthly_fndmntl_ts <-
 
 
 # Keep track of count of valid tickers
-fnl_no_price_data <- monthly_fndmntl_ts %>% filter(year(report_date) == year(end_date)) %>% select(ticker) %>% n_distinct()
+fnl_no_price_data <- monthly_fndmntl_ts %>% 
+  filter(year(report_date) == year(end_date)) %>% 
+  select(ticker) %>% 
+  n_distinct()
 
 
 # Replace Inf with NA and remove
@@ -343,7 +360,10 @@ monthly_fndmntl_ts <- monthly_fndmntl_ts %>%
 
 
 # Keep track of final count of valid tickers
-fnl_remainder <- monthly_fndmntl_ts %>% filter(year(report_date) == year(end_date)) %>% select(ticker) %>% n_distinct()
+fnl_remainder <- monthly_fndmntl_ts %>% 
+  filter(year(report_date) == year(end_date)) %>% 
+  select(ticker) %>% 
+  n_distinct()
 
 
 
@@ -376,7 +396,7 @@ monthly_fndmntl_ts <- monthly_fndmntl_ts %>%
   # TO DO 3 - Assign small positive equity for negative equity stocks to return log(bp)
   mutate(
     roe           = if_else(is.na(roe), mean(roe, na.rm = TRUE), roe),
-    roe           = Winsorize(roe, minval = -0.5, maxval = 0.75, na.rm = TRUE),
+    roe           = Winsorize(roe, minval = -1, maxval = 1, na.rm = TRUE),
     book_price    = if_else(is.na(book_price), mean(book_price, na.rm = TRUE), book_price),
     book_price    = if_else(book_price <= 0, 0.01, book_price),
     log_pb        = log(1/book_price),
@@ -397,90 +417,99 @@ monthly_fndmntl_ts <- monthly_fndmntl_ts %>%
 
 
 
-
-
-#==============================================================================
-#
 # Valuation measures requiring Python functions
-# - multivariate Thiel Sen 
-#
-#==============================================================================
+if (ts_regr) {
 
-# Reticulate for multivariate Thiel Sen regression
-use_condaenv(condaenv = 'STOCK_MASTER', required = TRUE)
-source_python('C:/Users/brent/Documents/VS_Code/postgres/postgres/ts_regression.py')
+  #==============================================================================
+  #
+  # Valuation measures requiring Python functions
+  # - multivariate Thiel Sen 
+  #
+  #==============================================================================
+  
+  # Reticulate for multivariate Thiel Sen regression
+  use_condaenv(condaenv = 'STOCK_MASTER', required = TRUE)
+  source_python('C:/Users/brent/Documents/VS_Code/postgres/postgres/ts_regression.py')
+  
+  
+  # Regression inputs - Non-financial data
+  tsreg_data <- monthly_fndmntl_ts %>% 
+    filter(date_stamp > as.Date(end_date) %m-% months(ts_prior_months), sector != 5) %>% 
+    mutate(
+      total_cur_liab_abs        = -total_cur_liab,
+      lt_debt_abs               = -lt_debt,
+      non_cash_cur_assets       = total_cur_assets - cash_equiv_st_invest,
+      other_noncur_liab_abs     = -(total_noncur_liab - lt_debt),
+      total_equity_abs          = -total_equity_cln,
+      ttm_earnings_abs          = -ttm_earnings
+    ) %>% 
+    select(
+      date_stamp, sector, ticker, mkt_cap,
+      cash_equiv_st_invest, non_cash_cur_assets, total_noncur_assets, 
+      total_cur_liab_abs, lt_debt_abs, other_noncur_liab_abs, total_equity_abs, ttm_earnings_abs
+    )
+  
+  
+  # Regression inputs - Financial data (note the different attributes used for model)
+  tsreg_data_fin <- monthly_fndmntl_ts %>% 
+    filter(date_stamp > as.Date(end_date) %m-% months(ts_prior_months), sector == 5) %>% 
+    mutate(
+      total_cur_liab_abs        = -total_cur_liab,
+      lt_debt_abs               = -lt_debt,
+      total_liab                = -total_liab,
+      total_equity_abs          = -total_equity_cln,
+      ttm_earnings_abs          = -ttm_earnings
+    ) %>% 
+    select(
+      date_stamp, sector, ticker, mkt_cap,
+      total_assets, total_liab, total_equity_abs, ttm_earnings_abs
+    )
+  
+  
+  # Apply model
+  # Excluding the '.id' argument to map_dfr results in the date_stamp being returned from python/pandas 
+  # as a list.  This is not usable in the data frame.
+  # Including the '.id' argument as below requires converting this back to date per the 'mutate' below
+  #
+  # TO DO 1: Limit TS prediction to zero and 110% of the max mkt cap
+  
+  tsreg_pred <- tsreg_data %>% 
+    split(list(.$date_stamp,.$sector)) %>% 
+    map_dfr(., theil_sen_py, .id = 'date_stamp', iter = as.integer(ts_iter)) %>% 
+    mutate(
+      date_stamp = as.Date(substr(date_stamp, 1, 10)),
+      actual = prediction + residual
+    )
+  
+  tsreg_pred_fin <- tsreg_data_fin %>% 
+    split(list(.$date_stamp,.$sector)) %>% 
+    map_dfr(., theil_sen_py, .id = 'date_stamp', iter = as.integer(ts_iter)) %>% 
+    mutate(
+      date_stamp = as.Date(substr(date_stamp, 1, 10)),
+      actual = prediction + residual
+    )
+  
+  
+  # Union financial and non-financial regression results
+  tsreg_pred_all <- bind_rows(tsreg_pred, tsreg_pred_fin)
+  
+  
+  # Join model residuals back to original data frame
+  monthly_fndmntl_ts <- 
+    left_join(
+      x = monthly_fndmntl_ts, 
+      y = select(tsreg_pred_all, date_stamp, ticker, residual), 
+      by = c('date_stamp' = 'date_stamp', 'ticker' = 'ticker')
+    ) %>% 
+    mutate(fnmdl_rsdl_ts = round(residual / mkt_cap, 3))
 
+} else {
+  
+  monthly_fndmntl_ts$residual <- 0
+  monthly_fndmntl_ts$fnmdl_rsdl_ts <- 0
 
-# Regression inputs - Non-financial data
-tsreg_data <- monthly_fndmntl_ts %>% 
-  filter(date_stamp > as.Date(end_date) %m-% months(ts_prior_months), sector != 5) %>% 
-  mutate(
-    total_cur_liab_abs        = -total_cur_liab,
-    lt_debt_abs               = -lt_debt,
-    non_cash_cur_assets       = total_cur_assets - cash_equiv_st_invest,
-    other_noncur_liab_abs     = -(total_noncur_liab - lt_debt),
-    total_equity_abs          = -total_equity,
-    ttm_earnings_abs          = -ttm_earnings
-  ) %>% 
-  select(
-    date_stamp, sector, ticker, mkt_cap,
-    cash_equiv_st_invest, non_cash_cur_assets, total_noncur_assets, 
-    total_cur_liab_abs, lt_debt_abs, other_noncur_liab_abs, total_equity_abs, ttm_earnings_abs
-  )
+}
 
-
-# Regression inputs - Financial data (note the different attributes used for model)
-tsreg_data_fin <- monthly_fndmntl_ts %>% 
-  filter(date_stamp > as.Date(end_date) %m-% months(ts_prior_months), sector == 5) %>% 
-  mutate(
-    total_cur_liab_abs        = -total_cur_liab,
-    lt_debt_abs               = -lt_debt,
-    total_liab                = -total_liab,
-    total_equity_abs          = -total_equity,
-    ttm_earnings_abs          = -ttm_earnings
-  ) %>% 
-  select(
-    date_stamp, sector, ticker, mkt_cap,
-    total_assets, total_liab, total_equity_abs, ttm_earnings_abs
-  )
-
-
-# Apply model
-# Excluding the '.id' argument to map_dfr results in the date_stamp being returned from python/pandas 
-# as a list.  This is not usable in the data frame.
-# Including the '.id' argument as below requires converting this back to date per the 'mutate' below
-#
-# TO DO 1: Limit TS prediction to zero and 110% of the max mkt cap
-
-tsreg_pred <- tsreg_data %>% 
-  split(list(.$date_stamp,.$sector)) %>% 
-  map_dfr(., theil_sen_py, .id = 'date_stamp', iter = as.integer(ts_iter)) %>% 
-  mutate(
-    date_stamp = as.Date(substr(date_stamp, 1, 10)),
-    actual = prediction + residual
-  )
-
-tsreg_pred_fin <- tsreg_data_fin %>% 
-  split(list(.$date_stamp,.$sector)) %>% 
-  map_dfr(., theil_sen_py, .id = 'date_stamp', iter = as.integer(ts_iter)) %>% 
-  mutate(
-    date_stamp = as.Date(substr(date_stamp, 1, 10)),
-    actual = prediction + residual
-  )
-
-
-# Union financial and non-financial regression results
-tsreg_pred_all <- bind_rows(tsreg_pred, tsreg_pred_fin)
-
-
-# Join model residuals back to original data frame
-monthly_fndmntl_ts <- 
-  left_join(
-    x = monthly_fndmntl_ts, 
-    y = select(tsreg_pred_all, date_stamp, ticker, residual), 
-    by = c('date_stamp' = 'date_stamp', 'ticker' = 'ticker')
-  ) %>% 
-  mutate(fnmdl_rsdl_ts = round(residual / mkt_cap, 3))
 
 
 # Aggregate valuation measure per http://www.econ.yale.edu/~shiller/behfin/2013_04-10/asness-frazzini-pedersen.pdf
@@ -499,47 +528,57 @@ monthly_fndmntl_ts <- monthly_fndmntl_ts %>%
     pbroe_rsdl_ts_z    = scale(pbroe_rsdl_ts_rnk),
     book_price_z       = scale(book_price_rnk),
     ttm_earn_yld_z     = scale(ttm_earn_yld_rnk),
-    fnmdl_rsdl_ts_z    = scale(fnmdl_rsdl_ts_rnk),
-    agg_valuation      = (pbroe_rsdl_ols_z + pbroe_rsdl_ts_z + book_price_z + ttm_earn_yld_z + fnmdl_rsdl_ts_z) / 5
+    fnmdl_rsdl_ts_z    = scale(fnmdl_rsdl_ts_rnk)
   ) %>% 
   ungroup()
 
+monthly_fndmntl_ts$agg_valuation  = rowMeans(
+  monthly_fndmntl_ts[,c('pbroe_rsdl_ols_z', 'pbroe_rsdl_ts_z', 'book_price_z', 'ttm_earn_yld_z', 'fnmdl_rsdl_ts_z')],
+  na.rm = TRUE)
 
 
-
+# CHANGE PLOTS BELOW SO THAT THEY ARE RETURNED AS OBJECTS IN THE FUNCTION
 
 # Plot log_pb against roe 
 monthly_fndmntl_ts %>% 
-  filter(date_stamp == as.Date('2020-07-31')) %>% 
-  ggplot(aes(x = log_pb, y = roe)) +
+  filter(date_stamp == end_date) %>% 
+  ggplot(aes(x = log_pb, y = -roe)) +
   facet_wrap(~sector, ncol = 4) + 
-  geom_point() 
+  geom_point() +
   # Add TS regression line of fit via 
   # geom_abline(intercept = 0, slope = 1, alpha = .2) +
+  labs(
+    title = 'Log book / price ratio versus return on equity',
+    x = 'Log book / price ratio',
+    y = 'Return on equity'
+  ) +
+  theme(plot.caption = element_text(size = 8, margin = margin(t = 10), color = "grey", hjust = 0))
 
 
 # Plot actual log_pb against predicted log_pb - Theil Sen
+if (ts_regr) {
 monthly_fndmntl_ts %>% 
-  filter(date_stamp > as.Date('2020-06-30')) %>% 
-  mutate(
-    actual     = log_pb,
-    prediction = actual + pbroe_rsdl_ts
-    ) %>% 
-  ggplot(aes(x = actual, y = prediction)) +
-  geom_abline(intercept = 0, slope = 1, alpha = .2) +
-  geom_point() +
-  facet_grid(rows = vars(date_stamp), cols = vars(sector)) +
-  labs(
-    title = 'Actual versus predicted log book / price ratio',
-    subtitle = 'Prediction derived from PB-ROE model applied at sector level using Theil Sen estimator',
-    caption = 'A negative residual has the predicted or modeled log(bp) ratio lower than the actual log(bp) ratio.\nSince a lower log(pb) ratio represents a higher valuation, this indicates the model considers the stock should \nbe valued higher than the it is. Therefore the stock is considered undervalued.'
-    ) +
-  theme(plot.caption = element_text(size = 8, margin = margin(t = 10), color = "grey", hjust = 0))
+    filter(date_stamp > end_date) %>% 
+    mutate(
+      actual     = log_pb,
+      prediction = actual + pbroe_rsdl_ts
+      ) %>% 
+    ggplot(aes(x = actual, y = prediction)) +
+    geom_abline(intercept = 0, slope = 1, alpha = .2) +
+    geom_point() +
+    facet_grid(rows = vars(date_stamp), cols = vars(sector)) +
+    labs(
+      title = 'Actual versus predicted log book / price ratio',
+      subtitle = 'Prediction derived from PB-ROE model applied at sector level using Theil Sen estimator',
+      caption = 'A negative residual has the predicted or modeled log(bp) ratio lower than the actual log(bp) ratio.\nSince a lower log(pb) ratio represents a higher valuation, this indicates the model considers the stock should \nbe valued higher than the it is. Therefore the stock is considered undervalued.'
+      ) +
+    theme(plot.caption = element_text(size = 8, margin = margin(t = 10), color = "grey", hjust = 0))
+}
 
 
 # Plot actual log_pb against predicted log_pb - OLS
 monthly_fndmntl_ts %>% 
-  filter(date_stamp > as.Date('2020-06-30')) %>% 
+  filter(month(date_stamp) %in% c(3,6,9,12)) %>% 
   mutate(
     actual     = log_pb,
     prediction = actual + pbroe_rsdl_ols
@@ -551,7 +590,7 @@ monthly_fndmntl_ts %>%
   labs(
     title = 'Actual versus predicted log book / price ratio',
     subtitle = 'Prediction derived from PB-ROE model applied at sector level using OLS estimator',
-    caption = 'A negative residual has the predicted or modeled log(bp) ratio lower than the actual log(bp) ratio.\nSince a lower log(pb) ratio represents a higher valuation, this indicates the model considers the stock should \nbe valued higher than the it is. Therefore the stock is considered undervalued.'
+    caption = 'A negative residual has the predicted or modeled log(bp) ratio lower than the actual log(bp) ratio.\nSince a lower log(pb) ratio represents a higher valuation, this indicates the model considers the stock should \nbe valued higher than the it is. Theus the stock is considered undervalued.'
   ) +
   theme(plot.caption = element_text(size = 8, margin = margin(t = 10), color = "grey", hjust = 0))
 
@@ -580,10 +619,18 @@ stages <- tibble(
   ) %>% 
   mutate(stage = as_factor(stage))
 
-# Bar plot
+# Bar plot showing stocks lost to bad data
 ggplot(stages, aes(x = stage, y= tickers)) +
   geom_col() +
-  geom_text(aes(label = tickers, vjust = -0.5), size = 3.5)
+  geom_text(aes(label = tickers, vjust = -0.5), size = 3.5) +
+  labs(
+    title = 'Factors reducing final population of valid stocks',
+    subtitle = 'Counts represent number of distinct stocks over the year',
+    #caption = 'xxxx'
+    x = '',
+    y = ''
+  ) +
+  theme(plot.caption = element_text(size = 8, margin = margin(t = 10), color = "grey", hjust = 0))
 
 
 
@@ -626,7 +673,6 @@ datatable(
 
 
 
-
 #==============================================================================
 #
 # Write to postgres database & disconnect
@@ -636,6 +682,7 @@ datatable(
 # Select columns to write to DB
 df_to_db <-  monthly_fndmntl_ts %>% 
   select(-(shares_cso_fact:split_adj_end)) %>% 
+  filter(date_stamp > as.Date(end_date) %m-% months(months_to_load)) %>% 
   arrange(date_stamp, ticker)
 
   
@@ -649,7 +696,7 @@ if (write_to_db) dbWriteTable(
 
 
 # Disconnect
-#dbDisconnect(con)
+dbDisconnect(con)
 
 end_time <- Sys.time()
 
