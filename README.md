@@ -55,12 +55,31 @@ The table below shows attributes codes and descriptions.
 
 | Attribute code        | Attribute description         |
 | --------------------- |:------------------------------|
-| rtn_ari_1m_dcl        | 1 month arithmetic return     |
-| amihud_1m_dcl         | "amihud" illiquidity measure  |
-| vol_ari_20d_dcl       | volatility  of 1 day arithmetic returns |
-| skew_ari_120d_dcl     | skewness of 1 day arithmetic returns |
-| cor_rtn_1d_mkt_120d_sctr_dcl | correlation of 1 day returns with the S&P500 index |
-| beta_rtn_1d_mkt_120d_sctr_dcl | beta of 1 day returns with the S&P500 index |
+| symbol | the ticker symbol identifying the company |
+| date_stamp | date_stamp |
+| close | the closing price on the last day of the month |
+| adjusted_close | the adjusted closing price on the last day of the month |
+| volume | trading volume |
+| rtn_log_1m | 1 month logarithic return |
+| amihud_1m | "amihud" illiquidity measure - 1 month average |
+| amihud_60d | "amihud" illiquidity measure - 3 month average |
+| amihud_vol_60d | volatility of the daily amihud illiquidity measure |
+| vol_ari_20d | annualised 1 month volatility of 1 day arithmetic returns |
+| vol_ari_60d | annualised 3 month volatility of 1 day arithmetic returns |
+| vol_ari_120d | annualised 3 month volatility of 1 day arithmetic returns |
+| skew_ari_120d | skewness of 1 day arithmetic returns calculated over 6 months |
+| kurt_ari_120d | kurtosis of 1 day arithmetic returns calculated over 6 months |
+| smax_20d | average of the five highest daily returns over the trailing month divided by the trailing 20 day daily return volatility |
+| cor_rtn_1d_mkt_120d | the correlation of the daily returns between the stock and the S&P500 index over trailing 6 months |
+| beta_rtn_1d_mkt_120d | the slope of the regression line between the stocks daily returns and the S&P500 index daily returns over trailing 6 months |
+| rtn_ari_1m | 1 month arithmetic returns |
+| rtn_ari_3m | 3 month arithmetic returns |
+| rtn_ari_6m | 6 month arithmetic returns |
+| rtn_ari_12m | 12 month arithmetic returns |
+| sector | the industry sector to which the stock belongs |
+| suv | standardised unexpected volume |
+| ipc | intra-portfolio correlation |
+
 
 Each of these attributes are discretised into deciles.  These deciles have ```_dcl``` appended.  Some attributes have also been assigned to deciles by industry group.  These are appended with ```_sctr_dcl```.  The first decile is the lowest value of the attribute in question.  Ordering has not been aligned to the consensus view of the attribute / factor effect. 
 
