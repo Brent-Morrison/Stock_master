@@ -21,6 +21,8 @@ select symbol, max("timestamp") as max_date from alpha_vantage.shareprices_daily
 
 select date_stamp, count(*) as n from access_layer.return_attributes group by 1 order by 1 desc
 
+select * from access_layer.return_attributes where date_stamp between '2018-01-31' and '2020-12-31' order by 1, 2;
+
 select * from alpha_vantage.ticker_excl where status = 'failed_no_data' and last_date_in_db = '2021-04-30'
 delete from alpha_vantage.ticker_excl where status = 'failed_no_data' and last_date_in_db = '2021-04-30'  --ticker in ('ZBRA','ZG','ZION','ZNGA','ZTS')  --last_date_in_db = '2020-11-02'
 
