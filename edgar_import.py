@@ -193,10 +193,9 @@ conn.close()
 ##############################################################################
 
 # Connect to postgres database
-engine = create_engine('postgresql://postgres:'+password+
-                        '@localhost:5432/stock_master')
-conn = engine.connect()
-meta = MetaData(engine)
+conn = pg_connect('')
+
+meta = MetaData(conn)
 meta.reflect(schema='edgar')
 company_tickers = meta.tables['edgar.company_tickers']
 
@@ -204,7 +203,7 @@ company_tickers = meta.tables['edgar.company_tickers']
 sec_symbols_json = pd.read_json('https://www.sec.gov/files/company_tickers.json', orient='index')
 
 # Insert to postgres database
-sec_symbols_json.to_sql(name='company_tickers', con=engine, schema='edgar', 
+sec_symbols_json.to_sql(name='company_tickers', con=conn, schema='edgar', 
                         index=False, if_exists='append', method='multi', chunksize=50000)
 
 # Close connection
@@ -223,10 +222,9 @@ conn.close()
 ##############################################################################
 
 # Connect to postgres database
-engine = create_engine('postgresql://postgres:'+password+
-                        '@localhost:5432/stock_master')
-conn = engine.connect()
-meta = MetaData(engine)
+conn = pg_connect('')
+
+meta = MetaData(conn)
 meta.reflect(schema='alpha_vantage')
 sp_1000     = meta.tables['alpha_vantage.sp_1000']
 rs_1000     = meta.tables['alpha_vantage.rs_1000']
@@ -248,7 +246,7 @@ sp_1000_wik.rename(columns={'Company': 'company',
                             inplace=True)
 
 # S&P1000 insert to postgres database
-sp_1000_wik.to_sql(name='sp_1000', con=engine, schema='alpha_vantage', 
+sp_1000_wik.to_sql(name='sp_1000', con=conn, schema='alpha_vantage', 
                 index=False, if_exists='append', method='multi', chunksize=50000)
 
 
@@ -262,7 +260,7 @@ rs_1000_wik.rename(columns={'Company': 'company',
                             inplace=True)
 
 # Russell 1000 insert to postgres database
-rs_1000_wik.to_sql(name='rs_1000', con=engine, schema='alpha_vantage', 
+rs_1000_wik.to_sql(name='rs_1000', con=conn, schema='alpha_vantage', 
                 index=False, if_exists='append', method='multi', chunksize=50000)
 
 
@@ -276,7 +274,7 @@ sp_500_wik['date_added'] = sp_500_wik['date_added'].str.slice(0,10)
 sp_500_wik['capture_date'] = dt.datetime.today().date()
 
 # SP500 insert to postgres database
-sp_500_wik.to_sql(name='sp_500', con=engine, schema='alpha_vantage', 
+sp_500_wik.to_sql(name='sp_500', con=conn, schema='alpha_vantage', 
                 index=False, if_exists='append', method='multi', chunksize=50000)
 
 
@@ -290,7 +288,7 @@ sp_500_dlta_wik['capture_date'] = dt.datetime.today().date()
 sp_500_dlta_wik['date'] = pd.to_datetime(sp_500_dlta_wik['date'], infer_datetime_format=True)
 
 # SP500 insert to postgres database
-sp_500_dlta_wik.to_sql(name='sp_500_dlta', con=engine, schema='alpha_vantage', 
+sp_500_dlta_wik.to_sql(name='sp_500_dlta', con=conn, schema='alpha_vantage', 
                 index=False, if_exists='append', method='multi', chunksize=50000)
 
 

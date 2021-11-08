@@ -24,20 +24,19 @@ from functions import pg_connect, get_alphavantage, update_av_data
 
 
 # Connect to db
-conn = pg_connect('')
+conn = pg_connect('Bremor*74')
 
 
 # Update function
-# - the function will write valid data to the database on each iteration
-# - the result assigned to the object "update_df" below is a data frame 
-# - containing the status of the stocks looped over 
+# - The function will write valid data to the database on each iteration
+# - The object assigned to "update_df" below is a data frame containing the status of the stocks looped over 
 update_df = update_av_data(
   apikey='', 
   conn=conn, 
   update_to_date='2021-09-30', 
   data='prices', 
   wait_seconds=15, 
-  batch_size=350
+  batch_size=300
   )
 
 

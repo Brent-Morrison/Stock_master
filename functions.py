@@ -12,6 +12,8 @@ from zipfile import ZipFile
 import yfinance as yf
 
 
+
+
 # Connect to database ------------------------------------------------------------------------------------------------------
 
 
