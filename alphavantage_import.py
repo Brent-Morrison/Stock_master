@@ -1,6 +1,14 @@
-##############################################################################
+###################################################################################################
 #
-# Grab daily price data from AlphaVantage
+# GRAB DAILY PRICE DATA FROM ALPHA VANTAGE
+# 
+# Notes 
+# - Check the stocks that are excluded from update via the "ticker_excl" table
+#   "select * from alpha_vantage.ticker_excl"
+# - Delete from this table if erronous entries have been made.
+# - Alpha Vantage download restrictions seem to be stricter.  Limit daily downloads to 250.
+# 
+# To do
 # - Add logic to do nothing when there is no new data, eg ZAYO 
 #
 # SQL write performance enhancements
@@ -8,19 +16,10 @@
 # - https://hakibenita.com/fast-load-data-python-postgresql
 # - https://stackoverflow.com/questions/23103962/how-to-write-dataframe-to-postgres-table/47984180#47984180
 #
-##############################################################################
+###################################################################################################
 
 # Libraries
-from sqlalchemy import create_engine, MetaData, Table, text
-import psycopg2
-import pandas as pd
-import numpy as np
-import datetime as dt
-import time
-import requests
-import time
-import yfinance as yf
-from functions import pg_connect, get_alphavantage, update_av_data
+from functions import *
 
 
 # Connect to db
@@ -29,14 +28,15 @@ conn = pg_connect('Bremor*74')
 
 # Update function
 # - The function will write valid data to the database on each iteration
-# - The object assigned to "update_df" below is a data frame containing the status of the stocks looped over 
+# - The object assigned to "update_df" below is a data frame containing the 
+#   status of the stocks looped over 
 update_df = update_av_data(
-  apikey='', 
+  apikey='J2MWHUOABDSEVS6P', 
   conn=conn, 
-  update_to_date='2021-09-30', 
+  update_to_date='2021-11-30', 
   data='prices', 
   wait_seconds=15, 
-  batch_size=300
+  batch_size=225
   )
 
 
@@ -60,205 +60,12 @@ conn.close()
 
 
 
-
-
-# Original script ----------------------------------------------------------------------------------------------------------
-
-# Parameters
-apikey = ''
-data = 'prices'                                 # Data to grab 'prices' or 'eps'
-wait_seconds = 15                               # Wait time before pinging AV server
-update_to_date = dt.datetime(2021,5,31).date()  # If the last date in the database is this date, do nothing
-batch_size = 350                                # Number of tickers to process per batch
-
-
-# SQLAlchemy
-meta = MetaData(conn)
-meta.reflect(schema='alpha_vantage')
-company_tickers = meta.tables['alpha_vantage.shareprices_daily']
-
-
-# Grab tickers from database
-tickers = pd.read_sql(
-  sql=text("""
-    select * from alpha_vantage.tickers_to_update
-    where symbol not in (select ticker from alpha_vantage.ticker_excl)
-  """)
-  ,con=conn
-  )
-
-
-# Re-format tickers array
-default_date = dt.datetime(1980,12,31).date()
-tickers['last_date_in_db'] = tickers['last_date_in_db'].fillna(default_date)
-tickers['last_adj_close'] = tickers['last_adj_close'].fillna(0)
-tickers['last_eps_date'] = tickers['last_eps_date'].fillna(default_date)
-
-
-# Filter data frame for those not yet updated
-if data == 'prices':
-  ticker_list = tickers[tickers['last_date_in_db'] < update_to_date]
-elif data == 'eps':
-  ticker_list = tickers[tickers['last_eps_date'] < (update_to_date - dt.timedelta(days=80))]  # ROW 127 CONDITION HERE
-
-ticker_list = ticker_list.values
-
-
-
-# Update function 
-iter_count = 0
-push_count = 0
-last_av_dates = []
-for ticker in ticker_list:
-  symbol=ticker[0]
-  if data == 'prices':
-    last_date_in_db=ticker[1] # last price date
-  elif data == 'eps':
-    last_date_in_db=ticker[3] # last eps date
-  last_adj_close=ticker[2]
-
-
-  # Stop if the batch size is met
-  if iter_count == batch_size:
-    break
-
-  # If data is up to date exit loop 
-  if (data == 'prices' and last_date_in_db >= update_to_date) or (data == 'eps' and (update_to_date - last_date_in_db).days < 70):
-    iter_count += 1
-    inner = [last_date_in_db,'data_up_to_date']
-    last_av_dates.append(inner)
-    print('loop no.', iter_count,':', symbol, 'data up to date')
-    continue
-  
-  # If the default date has been returned (via the replacement of NaN's), there is no data, 
-  # therefore run full update
-  elif last_date_in_db == default_date:
-    update_mode='full'
-  
-  # Else compact (100 days) update
-  else:
-    update_mode='compact'
-  
-  # Get price data from Alphavantage
-  try:
-    df_raw = get_alphavantage(
-        symbol=symbol, 
-        data=data,
-        apikey=apikey, 
-        outputsize=update_mode
-        )
-    time.sleep(wait_seconds)
-    if data == 'prices':
-      df_raw_last_date = pd.to_datetime(df_raw.iloc[0,0]).date()
-    elif data == 'eps':
-      df_raw_last_date = pd.to_datetime(df_raw.iloc[0,1]).date()
-      df_raw = df_raw[df_raw['date_stamp'] > str(last_date_in_db)]
-  except:
-    iter_count += 1
-    inner = [default_date,'failed_no_data']
-    last_av_dates.append(inner)
-    print('loop no.', iter_count,':', symbol, 'failed - no data')
-    continue
-  
-  ##### Start block applying only to price data #####
-  
-  if data == 'prices':
-  
-    # Get the last adjusted close downloaded from Alphavantage for the date of the last price in the database
-    df_prices_last_adj_close = df_raw[df_raw['timestamp'] == str(last_date_in_db)]['adjusted_close']
-
-    # This can return NONE if there is a gap in trading in trading (see GPOR April to May 2021),
-    # check if empty and assign 0 if so
-    df_prices_last_adj_close_values = df_prices_last_adj_close.values
-    if df_prices_last_adj_close_values.size == 0:
-      df_prices_last_adj_close_values = 0
-
-    # If the new adjusted close is not different to the existing adjusted close, filter for new dates only
-    if (update_mode == 'compact') and (abs(np.round(df_prices_last_adj_close_values,2) - np.round(last_adj_close,2)) < 0.03):
-      df_raw = df_raw[df_raw['timestamp'] > str(last_date_in_db)]
-
-    # Else if the adjusted close is different, gather the full extract
-    elif (update_mode == 'compact') and (abs(np.round(df_prices_last_adj_close_values,2) - np.round(last_adj_close,2)) >= 0.03):
-      df_raw = None
-      try:
-        df_raw = get_alphavantage(
-            symbol=symbol,
-            data=data, 
-            apikey=apikey, 
-            outputsize = 'full'
-            )
-        time.sleep(wait_seconds)
-        df_raw_last_date = pd.to_datetime(df_raw.iloc[0,0]).date()
-      except:
-        iter_count += 1
-        inner = [default_date,'failed_no_data']
-        last_av_dates.append(inner)
-        print('loop no.', iter_count,':', symbol, 'failed - no data')
-        continue
-    
-    # Exit loop if there are no records to update
-    if len(df_raw) == 0:
-      iter_count += 1
-      inner = [pd.to_datetime(df_raw_last_date),'nil_records_no_update']
-      last_av_dates.append(inner)
-      print('loop no.', iter_count,':', symbol, len(df_raw), 'records - no update')
-      continue
-  
-  ##### End block applying only to price data #####
-
-  # Push to database
-  try:
-    if data == 'prices' and len(df_raw) > 0:
-      df_raw.to_sql(name='shareprices_daily', con=conn, schema='alpha_vantage', 
-                    index=False, if_exists='append', method='multi', chunksize=50000)
-    elif data == 'eps' and len(df_raw) > 0:
-      df_raw.to_sql(name='earnings', con=conn, schema='alpha_vantage', 
-                    index=False, if_exists='append', method='multi', chunksize=50000)
-    
-    iter_count += 1
-    push_count += 1
-    inner = [pd.to_datetime(df_raw_last_date),'succesful_update']
-    last_av_dates.append(inner)
-    print('loop no.', iter_count,':', symbol, len(df_raw), 'records updated')
-    print('push no.', push_count)
-  except:
-    iter_count += 1
-    inner = [pd.to_datetime(df_raw_last_date),'failed_push_to_db']
-    last_av_dates.append(inner)
-    print('loop no.', iter_count,':', symbol, 'failed - unable to push to db')
-    continue
-
-
-# Send list of stale stocks to db
-if data == 'prices':
-  ticker_excl = pd.DataFrame(data=ticker_list[:len(last_av_dates),:3], 
-    columns=['ticker','last_date_in_db','price']) # Error - column "last_eps_date" of relation "ticker_excl" does not exist
-  last_av_dates = np.array(last_av_dates)
-  ticker_excl['last_av_date'] = last_av_dates[:,0]
-  ticker_excl['status'] = last_av_dates[:,1]
-  ticker_excl['last_av_date'] = pd.to_datetime(ticker_excl['last_av_date']).dt.date
-  ticker_excl = ticker_excl.loc[(ticker_excl['last_date_in_db'] == ticker_excl['last_av_date']) | (ticker_excl['status'] == 'failed_no_data')]
-
-  # Push to database
-  ticker_excl.to_sql(name='ticker_excl', con=conn, schema='alpha_vantage', 
-                    index=False, if_exists='append', method='multi', chunksize=50000)
-
-
-# Close connection
-conn.close()
-
-
-
-
-
-
-
-
-##############################################################################
+###################################################################################################
 #
 # Grab AlphaVantage active and delisted stock data
 #
-##############################################################################
+###################################################################################################
+
 
 # Parameters
 apikey = ''
@@ -294,11 +101,81 @@ df.to_sql(name='active_delisted', con=conn, schema='alpha_vantage',
 
 
 
+###################################################################################################
+#
+# Various tests
+#
+###################################################################################################
 
-# SCRATCH
-last_date_in_db=dt.datetime(2021,1,1).date()
-update_to_date=dt.datetime(2021,1,31).date()
-if (update_to_date - last_date_in_db).days < 40:
-  print('continue')
-else:
-  print('grab data')
+
+
+# Insert timing
+tic = time.perf_counter()
+df_test = get_alphavantage(
+    symbol='WMT',
+    data='prices', 
+    apikey='J2MWHUOABDSEVS6P', 
+    outputsize = 'full'
+    )
+toc = time.perf_counter()
+print('Download time was', round(toc - tic, 2), 'seconds')
+
+
+# Push to db
+tic = time.perf_counter()
+copy_from_stringio(conn=conn, df=df_test, table='test.shareprices_daily_test')
+toc = time.perf_counter()
+print('Upload time was', round(toc - tic, 2), 'seconds for stringio')
+
+tic = time.perf_counter()
+copy_from_stringio(conn=conn, df=df_test, table='test.shareprices_daily_test_idx')
+toc = time.perf_counter()
+print('Upload time was', round(toc - tic, 2), 'seconds for stringio with index')
+
+# to_sql dtypes parameters
+from sqlalchemy import types
+sql_types={
+  'timestamp': types.Date, 
+  'open': types.Numeric,
+  'high': types.Numeric,
+  'low': types.Numeric,
+  'close': types.Numeric,
+  'adjusted_close': types.Numeric,
+  'volume': types.Numeric,
+  'dividend_amount': types.Numeric,
+  'split_coefficient': types.Numeric,
+  'symbol': types.Text,
+  'capture_date': types.Date
+  }
+
+tic = time.perf_counter()
+df_test.to_sql(
+  con=conn,
+  schema='test',
+  name='shareprices_daily',   
+  index=False, 
+  if_exists='append', 
+  method='multi', 
+  chunksize=10000)
+toc = time.perf_counter()
+print('Upload time was', round(toc - tic, 2), 'seconds for pd.to_sql')
+
+
+tic = time.perf_counter()
+df_test.to_sql(
+  con=conn,
+  schema='test',
+  name='shareprices_daily_test_idx',   
+  index=False, 
+  if_exists='append', 
+  method='multi', 
+  chunksize=10000,
+  dtype=sql_types)
+toc = time.perf_counter()
+print('Upload time was', round(toc - tic, 2), 'seconds for pd.to_sql')
+
+
+
+arr1 = np.array([1,2,3,4])
+arr2 = np.array([5,6,7,8])
+arr3 = np.append(arr1,arr2)

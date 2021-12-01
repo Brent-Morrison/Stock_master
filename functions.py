@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, MetaData, Table, text
+from sqlalchemy import create_engine, text, types
 import psycopg2
 import pandas as pd
 import numpy as np
@@ -92,7 +92,8 @@ def copy_from_stringio(conn, df, table):
     # Save dataframe to an in memory buffer
     buffer = io.StringIO()
     df.to_csv(buffer, index_label='id', header=False, index=False, na_rep='')
-    buffer.seek(0)                          # Reset the position to the start of the stream
+    # Reset the position to the start of the stream
+    buffer.seek(0)
     db_connection = conn.connection
     cursor = db_connection.cursor()
     try:
@@ -143,7 +144,7 @@ def update_sp500_yf(conn):
 
     # Insert to postgres database
     df_sp500.to_sql(name='shareprices_daily', con=conn, schema='alpha_vantage', 
-        index=False, if_exists='append', method='multi', chunksize=50000)
+        index=False, if_exists='append', method='multi', chunksize=10000)
     
     print(df_sp500.shape[0]," records inserted into alpha_vantage.shareprices_daily")
 
@@ -190,7 +191,7 @@ def update_av_data(apikey, conn, update_to_date, data='prices', wait_seconds=15,
   tickers['last_eps_date'] = tickers['last_eps_date'].fillna(default_date)
 
 
-  # Filter data frame for those not yet updated
+  # Filter data frame for those tickers not yet updated
   if data == 'prices':
     ticker_list = tickers[tickers['last_date_in_db'] < update_to_date]
   elif data == 'eps':
@@ -204,6 +205,7 @@ def update_av_data(apikey, conn, update_to_date, data='prices', wait_seconds=15,
   push_count = 0
   last_av_dates = []
   for ticker in ticker_list:
+    tic = time.perf_counter() 
     symbol=ticker[0]
     if data == 'prices':
       last_date_in_db=ticker[1] # last price date
@@ -221,7 +223,8 @@ def update_av_data(apikey, conn, update_to_date, data='prices', wait_seconds=15,
       iter_count += 1
       inner = [last_date_in_db,'data_up_to_date']
       last_av_dates.append(inner)
-      print('loop no.', iter_count,':', symbol, 'data up to date')
+      toc = time.perf_counter()
+      print('loop no.', iter_count,':', symbol, 'data up to date, ', round(toc - tic, 2), ' seconds')
       continue
     
     # If the default date has been returned (via the replacement of NaN's), there is no data, 
@@ -233,7 +236,7 @@ def update_av_data(apikey, conn, update_to_date, data='prices', wait_seconds=15,
     else:
       update_mode='compact'
     
-    # Get price data from Alphavantage
+    # Get price / eps data from Alphavantage
     try:
       df_raw = get_alphavantage(
           symbol=symbol, 
@@ -251,17 +254,18 @@ def update_av_data(apikey, conn, update_to_date, data='prices', wait_seconds=15,
       iter_count += 1
       inner = [default_date,'failed_no_data']
       last_av_dates.append(inner)
-      print('loop no.', iter_count,':', symbol, 'failed - no data')
+      toc = time.perf_counter()
+      print('loop no.', iter_count,':', symbol, 'failed - no data, ', round(toc - tic, 2), ' seconds')
       continue
     
     ##### Start block applying only to price data #####
     
     if data == 'prices':
     
-      # Get the last adjusted close downloaded from Alphavantage for the date of the last price in the database
+      # Get the adjusted close downloaded from Alphavantage as at the date of the last price in the database
       df_prices_last_adj_close = df_raw[df_raw['timestamp'] == str(last_date_in_db)]['adjusted_close']
 
-      # This can return NONE if there is a gap in trading in trading (see GPOR April to May 2021),
+      # This can return NONE if there is a gap in trading (see GPOR April to May 2021),
       # check if empty and assign 0 if so
       df_prices_last_adj_close_values = df_prices_last_adj_close.values
       if df_prices_last_adj_close_values.size == 0:
@@ -287,7 +291,8 @@ def update_av_data(apikey, conn, update_to_date, data='prices', wait_seconds=15,
           iter_count += 1
           inner = [default_date,'failed_no_data']
           last_av_dates.append(inner)
-          print('loop no.', iter_count,':', symbol, 'failed - no data')
+          toc = time.perf_counter()
+          print('loop no.', iter_count,':', symbol, 'failed - no data, ', round(toc - tic, 2), ' seconds')
           continue
       
       # Exit loop if there are no records to update
@@ -295,7 +300,8 @@ def update_av_data(apikey, conn, update_to_date, data='prices', wait_seconds=15,
         iter_count += 1
         inner = [pd.to_datetime(df_raw_last_date),'nil_records_no_update']
         last_av_dates.append(inner)
-        print('loop no.', iter_count,':', symbol, len(df_raw), 'records - no update')
+        toc = time.perf_counter()
+        print('loop no.', iter_count,':', symbol, len(df_raw), 'records - no update, ', round(toc - tic, 2), ' seconds')
         continue
     
     ##### End block applying only to price data #####
@@ -304,22 +310,24 @@ def update_av_data(apikey, conn, update_to_date, data='prices', wait_seconds=15,
     try:
       if data == 'prices' and len(df_raw) > 0:
         df_raw.to_sql(name='shareprices_daily', con=conn, schema='alpha_vantage', 
-                      index=False, if_exists='append', method='multi', chunksize=50000)
+                      index=False, if_exists='append', method='multi', chunksize=10000)
       elif data == 'eps' and len(df_raw) > 0:
         df_raw.to_sql(name='earnings', con=conn, schema='alpha_vantage', 
-                      index=False, if_exists='append', method='multi', chunksize=50000)
+                      index=False, if_exists='append', method='multi', chunksize=10000)
       
       iter_count += 1
       push_count += 1
       inner = [pd.to_datetime(df_raw_last_date),'succesful_update']
       last_av_dates.append(inner)
-      print('loop no.', iter_count,':', symbol, len(df_raw), 'records updated')
+      toc = time.perf_counter()
+      print('loop no.', iter_count,':', symbol, len(df_raw), 'records updated, ', round(toc - tic, 2), ' seconds')
       print('push no.', push_count)
     except:
       iter_count += 1
       inner = [pd.to_datetime(df_raw_last_date),'failed_push_to_db']
       last_av_dates.append(inner)
-      print('loop no.', iter_count,':', symbol, 'failed - unable to push to db')
+      toc = time.perf_counter()
+      print('loop no.', iter_count,':', symbol, 'failed - unable to push to db, ', round(toc - tic, 2), ' seconds')
       continue
 
 

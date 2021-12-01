@@ -1,52 +1,28 @@
+
 /***************************************************************************************************************************
 * 
-* USEFUL QUERIES
+* USEFUL QUERIES (postgresql db interrogation)
 * 
 ***************************************************************************************************************************/
+
 -- List largest objects
 select relname, relpages
 from pg_class
 order by relpages desc;
 
-select pg_size_pretty(pg_database_size('geekdb'))
+-- Total disk space used by a database
+select pg_size_pretty(pg_database_size('stock_master'))
 
-select * from alpha_vantage.active_delisted
+-- Free space
+vacuum full verbose edgar.num;
 
-select * from edgar.sub where adsh in ('0000006955-21-000003','0000006955-21-000012')
-select sec_qtr , count(*) as n from edgar.num group by 1
+-- Show data file location on disk
+show data_directory;
 
-select * from alpha_vantage.shareprices_daily where symbol = 'GPOR' and "timestamp" between '2020-12-31' and '2021-06-30' order by "timestamp"
+-- Current system settings for the AUTOVACUUM daemon
+select * from pg_settings where name like 'autovacuum%'
 
-select symbol, max("timestamp") as max_date from alpha_vantage.shareprices_daily group by 1 order by 2 desc
-
-select date_stamp, count(*) as n from access_layer.return_attributes group by 1 order by 1 desc
-
-select * from access_layer.return_attributes where date_stamp between '2018-01-31' and '2020-12-31' order by 1, 2;
-
-select * from alpha_vantage.ticker_excl where status = 'failed_no_data' and last_date_in_db = '2021-04-30'
-delete from alpha_vantage.ticker_excl where status = 'failed_no_data' and last_date_in_db = '2021-04-30'  --ticker in ('ZBRA','ZG','ZION','ZNGA','ZTS')  --last_date_in_db = '2020-11-02'
-
--- Tickers to update
-select * from alpha_vantage.tickers_to_update 
-where symbol not in (select ticker from alpha_vantage.ticker_excl)
-and last_date_in_db <= '2021-05-31'
-
-select * from alpha_vantage.ticker_excl
-
-select stmt, tag, count(*) from edgar.pre where tag like('%epreciat%') group by 1,2
-
--- Last S&P 500 date
-select max(timestamp) from alpha_vantage.shareprices_daily where symbol = 'GSPC'
-
-select * from edgar.qrtly_fndmntl_ts_vw where date_available >= '2020-12-31'
-
-/******************************************************************************
-* 
-* Cascade dependencies
-* https://stackoverflow.com/questions/37976832/how-to-list-tables-affected-by-cascading-delete
-* 
-******************************************************************************/
-
+-- Cascade dependencies - https://stackoverflow.com/questions/37976832/how-to-list-tables-affected-by-cascading-delete
 with recursive chain as (
     select classid, objid, objsubid, conrelid
     from pg_depend d
@@ -61,8 +37,7 @@ union all
 select pg_describe_object(classid, objid, objsubid), pg_get_constraintdef(objid)
 from chain;
 
---------
-
+-- List tables affected by cascading delete (https://stackoverflow.com/questions/37976832/how-to-list-tables-affected-by-cascading-delete)
 select pg_describe_object(classid, objid, objsubid)
 from pg_depend 
 where refobjid = 'reference.ticker_cik_sic_ind'::regclass and deptype = 'n';
@@ -70,16 +45,26 @@ where refobjid = 'reference.ticker_cik_sic_ind'::regclass and deptype = 'n';
 
 
 
+/***************************************************************************************************************************
+* 
+* USEFUL QUERIES (stock_master)
+* 
+***************************************************************************************************************************/
 
-/******************************************************************************
-* 
-* Range of price data by ticker
-* 
-* TO DO
-* - Add edgar data
-* 
-******************************************************************************/
+-- AV data status
+select 
+symbol
+,min(timestamp) as min_date
+,max(timestamp) as max_date
+,count(*) as records
+from alpha_vantage.shareprices_daily 
+where 1 = 1
+--and symbol = 'AAPL'
+group by symbol
+order by max_date desc, symbol
 
+
+-- Simfin data status
 select 
 ticker 
 ,min(date) as min_date
@@ -91,40 +76,62 @@ where 1 = 1
 group by 1
 order by 1;
 
-----------------------------------------------------------------------------------------------------------------------------
 
+-- ticker_excl status
+select * from alpha_vantage.ticker_excl where status = 'nil_records_no_update' and last_date_in_db = '2021-11-30'
+delete from alpha_vantage.ticker_excl where status = 'nil_records_no_update' and last_date_in_db = '2021-11-30'
 
-select 
-symbol
-,min(timestamp) as min_date
-,max(timestamp) as max_date
-,count(*) as records
-from alpha_vantage.shareprices_daily 
-where 1 = 1
---and symbol = 'AAPL'
-group by symbol
-order by symbol
-----------------------------------------------------------------------------------------------------------------------------
+-- Tickers to update per Python function "update_av_data()"
+select * from alpha_vantage.tickers_to_update
+where symbol not in (select ticker from alpha_vantage.ticker_excl)
 
-select 
-symbol
-,capture_date 
-,min(timestamp) as min_date
-,max(timestamp) as max_date
-,count(*) as records
-from alpha_vantage.shareprices_daily 
-where 1 = 1
-and capture_date = '2021-06-05'
---and symbol = 'AAPL'
-group by 1,2
-order by 1,2
-
-
-----------------------------------------------------------------------------------------------------------------------------
-
+-- Last S&P 500 date
 select max(timestamp) from alpha_vantage.shareprices_daily where symbol = 'GSPC'
 
-----------------------------------------------------------------------------------------------------------------------------
+-- Active_delisted
+select * from alpha_vantage.active_delisted
+
+select * from edgar.sub where adsh in ('0000006955-21-000003','0000006955-21-000012')
+select sec_qtr , count(*) as n from edgar.num group by 1
+
+select * from alpha_vantage.shareprices_daily where symbol = 'GPOR' and "timestamp" between '2020-12-31' and '2021-06-30' order by "timestamp"
+
+select symbol, max("timestamp") as max_date from alpha_vantage.shareprices_daily group by 1 order by 2 desc
+
+select date_stamp, count(*) as n from access_layer.return_attributes group by 1 order by 1 desc
+
+select * from access_layer.return_attributes where date_stamp between '2018-01-31' and '2020-12-31' order by 1, 2;
+
+
+
+
+
+
+/***************************************************************************************************************************
+* 
+* USEFUL QUERIES (test data)
+* 
+***************************************************************************************************************************/
+
+-- Test load AV csv
+create table test.shareprices_daily_test as select * from alpha_vantage.shareprices_daily limit 10;
+delete from test.shareprices_daily_test;
+select * from test.shareprices_daily_test;
+
+create table test.shareprices_daily_test_idx as table test.shareprices_daily_test with no data;
+create index shareprices_daily_idx on test.shareprices_daily_test_idx using btree (symbol, "timestamp")
+delete from test.shareprices_daily_test_idx;
+
+select * from information_schema.columns where table_name = 'shareprices_daily_test'
+
+
+
+
+
+
+
+
+
 
 -- Tickers in simfin but not in alpha vantage
 select 
