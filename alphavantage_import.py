@@ -1,6 +1,6 @@
 ###################################################################################################
 #
-# GRAB DAILY PRICE DATA FROM ALPHA VANTAGE
+# GRAB DAILY PRICE DATA FROM ALPHA VANTAGE / S&P 500 DATA
 # 
 # Notes 
 # - Check the stocks that are excluded from update via the "ticker_excl" table
@@ -23,7 +23,7 @@ from functions import *
 
 
 # Connect to db
-conn = pg_connect('Bremor*74')
+conn = pg_connect('')
 
 
 # Update function
@@ -31,12 +31,12 @@ conn = pg_connect('Bremor*74')
 # - The object assigned to "update_df" below is a data frame containing the 
 #   status of the stocks looped over 
 update_df = update_av_data(
-  apikey='J2MWHUOABDSEVS6P', 
+  apikey='', 
   conn=conn, 
   update_to_date='2021-11-30', 
   data='prices', 
-  wait_seconds=15, 
-  batch_size=225
+  wait_seconds=12.5, 
+  batch_size=325
   )
 
 
@@ -54,6 +54,51 @@ ticker_excl.to_sql(name='ticker_excl', con=conn, schema='alpha_vantage',
 
 # Close connection
 conn.close()
+
+
+
+
+# --------------------------------------------------------------------------------------------------
+
+# Libraries
+from functions import *
+
+
+# Connect to db
+conn = pg_connect('')
+
+
+# Grab and insert S&P500 data
+update_sp500_yf(conn)
+
+
+# Close connection
+conn.close()
+
+
+
+
+
+
+
+
+# --------------------------------------------------------------------------------------------------
+
+# Libraries
+from functions import *
+
+
+# Connect to db
+conn = pg_connect('')
+
+
+# Grab and insert S&P500 data
+update_active_delisted(conn, '')
+
+
+# Close connection
+conn.close()
+
 
 
 
@@ -101,6 +146,10 @@ df.to_sql(name='active_delisted', con=conn, schema='alpha_vantage',
 
 
 
+
+
+
+
 ###################################################################################################
 #
 # Various tests
@@ -112,7 +161,7 @@ df.to_sql(name='active_delisted', con=conn, schema='alpha_vantage',
 # Insert timing
 tic = time.perf_counter()
 df_test = get_alphavantage(
-    symbol='WMT',
+    symbol='MAA',
     data='prices', 
     apikey='J2MWHUOABDSEVS6P', 
     outputsize = 'full'
@@ -175,7 +224,31 @@ toc = time.perf_counter()
 print('Upload time was', round(toc - tic, 2), 'seconds for pd.to_sql')
 
 
+# Simfin industry data -----------------------------------------------------------------------------------------------------
 
-arr1 = np.array([1,2,3,4])
-arr2 = np.array([5,6,7,8])
-arr3 = np.append(arr1,arr2)
+conn = pg_connect('Bremor*74')
+# Read data
+df = pd.read_csv("C:/Users/brent/Downloads/us-companies.csv", sep = ";")
+
+# Check columns returns as expected
+if df.columns.tolist() != ['Ticker', 'SimFinId', 'Company Name', 'IndustryId']:
+  raise ValueError("Retrieved column names have changes from, 'Ticker', 'SimFinId', 'Company Name', 'IndustryId'")
+
+# Append capture date
+current_date = dt.datetime.today().date()
+df['capture_date'] = current_date
+
+# Rename columns
+df.rename(columns={'Ticker': 'ticker', 'SimFinId': 'simfin_id', 'Company Name': 'company_name', 'IndustryId': 'industry_id'}, inplace = True)
+
+# Grab existing data and selet only new records
+existing = pd.read_sql(sql=text("""select * from simfin.us_companies"""), con=conn)
+update_df = pd.concat([df, existing]).sort_values(by=['ticker','capture_date']).drop_duplicates(subset=['ticker','simfin_id','industry_id'], keep=False)
+update_df = update_df[update_df['capture_date'] == current_date]
+
+update_df.to_sql(name='us_companies', con=conn, schema='simfin', 
+                  index=False, if_exists='append', method='multi', chunksize=10000)
+print(len(update_df), "records inserted")
+
+
+

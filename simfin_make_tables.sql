@@ -106,7 +106,22 @@ where sf.ticker is not null
 ******************************************************************************/
 
 select * from alpha_vantage.shareprices_daily where symbol = 'A'
-select * from simfin.us_shareprices_daily where ticker = 'A'
+
+select 
+distinct on (ticker) usc.* 
+from simfin.us_companies usc 
+order by ticker, capture_date desc
+
+select ticker, simfin 
+from simfin.us_companies usc
+inner join
+(
+	select 
+	ticker, 
+	max(capture_date) as max_capture_date 
+	from simfin.us_companies group by 1
+)
+
 
 select
 row_number 

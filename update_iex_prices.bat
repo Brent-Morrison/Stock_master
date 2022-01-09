@@ -1,0 +1,1 @@
+conda activate STOCK_MASTER && python C:\Users\brent\Documents\VS_Code\postgres\postgres\update_iex_prices.py 3

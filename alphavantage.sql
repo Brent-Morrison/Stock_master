@@ -1,5 +1,36 @@
 /******************************************************************************
 * 
+* alpha_vantage.shareprices_daily
+* 
+* DESCRIPTION: 
+* Make table for earnings / eps data from alphavantage
+* Updated from script in "alphavantage_import.py"
+* 
+* 
+******************************************************************************/
+
+create table alpha_vantage.shareprices_daily (
+	"timestamp" date null,
+	"open" numeric null,
+	high numeric null,
+	low numeric null,
+	"close" numeric null,
+	adjusted_close numeric null,
+	volume numeric null,
+	dividend_amount numeric null,
+	split_coefficient numeric null,
+	symbol text null,
+	capture_date date null default '2020-06-19'::date,
+	data_source varchar(5) null
+);
+create index shareprices_daily_idx on alpha_vantage.shareprices_daily using btree (symbol, "timestamp");
+
+
+
+
+
+/******************************************************************************
+* 
 * alpha_vantage.earnings
 * 
 * DESCRIPTION: 
@@ -121,7 +152,7 @@ create or replace view alpha_vantage.tickers_to_update as
 			from reference.fundamental_universe fu
 			inner join reference.ticker_cik_sic_ind tcsi 
 			on fu.cik = tcsi.cik 
-			where fu.valid_year = 2020
+			where fu.valid_year = 2021
 			and tcsi.delist_date = '9998-12-31'
 		) rfnc
 	left join 
@@ -294,10 +325,11 @@ order by 1,3
 * - assess if the industry reference in "ind_ref" CTE should reference the simfin industry
 *   (same as for edgar.qrtly_fndmntl_ts_vw)
 * - see note around parameters, create SQl function in R to alleviate (Postgres function slow)
+* - make the "prices" CTE into a table, truncate and re-populate after each price update
 *  
 ******************************************************************************/
 
-select * from alpha_vantage.daily_price_ts_fn(valid_year_param => 20120, nonfin_cutoff => 10, fin_cutoff => 10)
+select * from alpha_vantage.daily_price_ts_fn(valid_year_param => 2021, nonfin_cutoff => 100, fin_cutoff => 50)
 where symbol_ in ('ADT','BGNE','EBIX','KOSN','TUSK')
 
 create or replace function alpha_vantage.daily_price_ts_fn
@@ -357,10 +389,11 @@ with prices as
     )
 
 ,ind_ref as 
-	(
+	(	-- 
 		select
 		ind.ticker 
 		,lk.lookup_val4 as sector
+		--,lk.lookup_val5 as industry
 		,case -- see TO DO
 			when ind.sic::int between 6000 and 6500 then 'financial' 
 			else 'non_financial' end as fin_nonfin

@@ -106,6 +106,9 @@ price_attributes <- function(
   df_raw <- dbFetch(qry1)
   colnames(df_raw) <- sub("_$","",colnames(df_raw)) # Remove underscores
   
+  # Check that data has been returned TO DO
+  
+  
   # Extract valid trading days from S&P500 series
   sql2 <- "select * from alpha_vantage.daily_sp500_ts_vw where extract(year from date_stamp) = ?valid_year_param"
   sql2 <- sqlInterpolate(conn = con, sql = sql2, valid_year_param = valid_year_param)

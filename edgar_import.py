@@ -5,6 +5,8 @@
 #
 ##############################################################################
 
+# Libraries
+from functions import *
 
 # Connect to postgres database
 conn = pg_connect('')
@@ -19,7 +21,6 @@ import requests
 import os
 import io as io
 from zipfile import ZipFile
-from functions import *
 
 
 # Create list of URL's for dates required
@@ -31,8 +32,8 @@ from functions import *
 # Prior quarters
 start_year = 2021
 end_year = 2021
-start_qtr = 1
-end_qtr = 1
+start_qtr = 2
+end_qtr = 3
 
 # Database write method (string: pandas OR stringio)
 db_write_method = 'pandas'
@@ -41,6 +42,9 @@ base_url = 'https://www.sec.gov/files/dera/data/financial-statement-data-sets/'
 url_list = [base_url+str(y)+'q'+str(q)+'.zip' 
             for y in range(start_year, end_year+1) 
             for q in range(start_qtr,end_qtr+1)]
+
+# ADD ERROR CHECK FOR URL VALIDITY PER
+# https://stackoverflow.com/questions/16778435/python-check-if-website-exists
 
 # Connect to postgres database 2
 # ?gssencmode=disable' per https://stackoverflow.com/questions/59190010/psycopg2-operationalerror-fatal-unsupported-frontend-protocol-1234-5679-serve
@@ -185,29 +189,7 @@ conn.close()
 
 
 
-##############################################################################
-#
-# LOAD TICKER LIST FROM SEC WEBSITE
-# at https://www.sec.gov/files/company_tickers.json
-#
-##############################################################################
 
-# Connect to postgres database
-conn = pg_connect('')
-
-meta = MetaData(conn)
-meta.reflect(schema='edgar')
-company_tickers = meta.tables['edgar.company_tickers']
-
-# Grab data from SEC website
-sec_symbols_json = pd.read_json('https://www.sec.gov/files/company_tickers.json', orient='index')
-
-# Insert to postgres database
-sec_symbols_json.to_sql(name='company_tickers', con=conn, schema='edgar', 
-                        index=False, if_exists='append', method='multi', chunksize=50000)
-
-# Close connection
-conn.close()
 
 
 

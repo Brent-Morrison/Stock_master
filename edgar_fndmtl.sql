@@ -368,10 +368,10 @@ select sec_qtr, count(*) as n from edgar.edgar_fndmntl_all_tb group by 1 order b
 insert into edgar.edgar_fndmntl_all_tb 
 	select * 
 	from edgar.edgar_fndmntl_all_vw
-	where sec_qtr = '2021q1'
+	where sec_qtr in ('2021q2', '2021q3')
 ;
 
-select * from edgar.edgar_fndmntl_all_tb where cik in (815556,1459417,771497,1326801);
+select * from edgar.edgar_fndmntl_all_tb where cik in (815556,1459417,771497,1326801) order by 2,7,8;
 
 
 
@@ -389,15 +389,16 @@ select * from edgar.edgar_fndmntl_all_tb where cik in (815556,1459417,771497,132
 * 
 ******************************************************************************/
 
--- Test	
-select * 
-from edgar.edgar_fndmntl_fltr_fn(
-	nonfin_cutoff => 1000
-	,fin_cutoff => 1000
-	,qrtr => '%q1'
-	,bad_data_fltr => true
-	)
-where sec_qtr = '2021q1'
+-- Query for "fundamental universe"
+select
+cik
+,fy + 1  as valid_year
+,fin_nonfin
+,total_assets
+,total_equity
+,combined_rank
+from edgar.edgar_fndmntl_fltr_fn(nonfin_cutoff => 1350, fin_cutoff => 150 ,qrtr => '%q3', bad_data_fltr => false)
+where sec_qtr = '2020q3'
 
 select * from edgar.edgar_fndmntl_fltr_fn(nonfin_cutoff => 20, fin_cutoff =>20, qrtr => null)
 select * from edgar.edgar_fndmntl_fltr_fn(300, 2000, null, false) where cik = 1702780 order by cik, ddate

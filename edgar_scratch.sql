@@ -10,17 +10,22 @@ select relname, relpages
 from pg_class
 order by relpages desc;
 
+
 -- Total disk space used by a database
 select pg_size_pretty(pg_database_size('stock_master'))
+
 
 -- Free space
 vacuum full verbose edgar.num;
 
+
 -- Show data file location on disk
 show data_directory;
 
+
 -- Current system settings for the AUTOVACUUM daemon
 select * from pg_settings where name like 'autovacuum%'
+
 
 -- Cascade dependencies - https://stackoverflow.com/questions/37976832/how-to-list-tables-affected-by-cascading-delete
 with recursive chain as (
@@ -36,6 +41,7 @@ union all
     )
 select pg_describe_object(classid, objid, objsubid), pg_get_constraintdef(objid)
 from chain;
+
 
 -- List tables affected by cascading delete (https://stackoverflow.com/questions/37976832/how-to-list-tables-affected-by-cascading-delete)
 select pg_describe_object(classid, objid, objsubid)
@@ -59,7 +65,7 @@ symbol
 ,count(*) as records
 from alpha_vantage.shareprices_daily 
 where 1 = 1
---and symbol = 'AAPL'
+and symbol = 'HCC'
 group by symbol
 order by max_date desc, symbol
 
@@ -79,11 +85,18 @@ order by 1;
 
 -- ticker_excl status
 select * from alpha_vantage.ticker_excl where status = 'nil_records_no_update' and last_date_in_db = '2021-11-30'
-delete from alpha_vantage.ticker_excl where status = 'nil_records_no_update' and last_date_in_db = '2021-11-30'
+
+delete from alpha_vantage.ticker_excl 
+where 1 = 1
+and ticker in ('MAA','MAC','MAN')
+and status = 'nil_records_no_update' 
+and last_date_in_db = '2021-11-30'
+
 
 -- Tickers to update per Python function "update_av_data()"
 select * from alpha_vantage.tickers_to_update
-where symbol not in (select ticker from alpha_vantage.ticker_excl)
+where symbol not in (select ticker from alpha_vantage.ticker_excl) and last_date_in_db < '2021-11-30'
+
 
 -- Last S&P 500 date
 select max(timestamp) from alpha_vantage.shareprices_daily where symbol = 'GSPC'
@@ -91,21 +104,65 @@ select max(timestamp) from alpha_vantage.shareprices_daily where symbol = 'GSPC'
 -- Active_delisted
 select * from alpha_vantage.active_delisted
 
-select * from edgar.sub where adsh in ('0000006955-21-000003','0000006955-21-000012')
+-- Return attributes status
+select date_stamp, count(*) as n from access_layer.return_attributes group by 1 order by 1 desc
+
+-- S&P 500 data status
+select max(timestamp) from alpha_vantage.shareprices_daily where symbol = 'GSPC'
+
+-- Query in R "price_attribute" function
+select * from alpha_vantage.daily_price_ts_fn(valid_year_param => 2020, nonfin_cutoff => 900, fin_cutoff => 100)
+
+
+
+select sec_qtr, count(*) as n from edgar.num group by 1
+
+select * from edgar.num_stage where adsh in ('0000006955-21-000003','0000006955-21-000012')
 select sec_qtr , count(*) as n from edgar.num group by 1
 
-select * from alpha_vantage.shareprices_daily where symbol = 'GPOR' and "timestamp" between '2020-12-31' and '2021-06-30' order by "timestamp"
+select * from alpha_vantage.shareprices_daily where symbol in ('BLUE') and "timestamp" between '2021-10-31' and '2021-11-30' order by symbol, "timestamp"
+
+select * from alpha_vantage.shareprices_daily where split_coefficient >= 1.5 and "timestamp" between '2021-10-31' and '2021-11-30' order by "timestamp" -- YUM, IBM, ANET
 
 select symbol, max("timestamp") as max_date from alpha_vantage.shareprices_daily group by 1 order by 2 desc
 
-select date_stamp, count(*) as n from access_layer.return_attributes group by 1 order by 1 desc
 
 select * from access_layer.return_attributes where date_stamp between '2018-01-31' and '2020-12-31' order by 1, 2;
 
+select * from edgar.edgar_fndmntl_fltr_fn(nonfin_cutoff => 1350, fin_cutoff => 150 ,qrtr => '%q3', bad_data_fltr => false)
+
+select * from test.shareprices_daily_test where "timestamp" = '2021-10-29' and symbol = 'YUM' and adjusted_close = 137.98
+select * from alpha_vantage.shareprices_daily where symbol = 'XOM' order by "timestamp"
+
+alter table test.shareprices_daily_test add column data_source varchar(5) null default 'AVE';
+select * from test.shareprices_daily_test where symbol = 'DLTR' order by "timestamp" desc
+select * from test.shareprices_daily_test where split_coefficient != 1 order by "timestamp" desc
+select * from alpha_vantage.shareprices_daily where symbol = 'DLTR' order by "timestamp" desc
+
+select 
+symbol
+,"timestamp"
+,close
+,adjusted_close 
+,volume 
+,dividend_amount 
+,split_coefficient 
+,capture_date 
+from 
+	(	-- Capture most recent version of price data (i.e., split & dividend adjusted)
+		select 
+		sd.* 
+		,row_number() over (partition by "timestamp", symbol order by capture_date desc) as row_num
+		from alpha_vantage.shareprices_daily sd 
+	) t1
+where row_num = 1
+and symbol in ('AAPL','DLTR','XOM')
+order by 1,2 desc
 
 
+--truncate test.shareprices_daily_test
 
-
+select * from test.tickers_to_update
 
 /***************************************************************************************************************************
 * 
@@ -125,11 +182,32 @@ delete from test.shareprices_daily_test_idx;
 select * from information_schema.columns where table_name = 'shareprices_daily_test'
 
 
+select * from reference.fundamental_universe order by 2,1
+
+select * from 
+(
+	select 
+	ct.* 
+	,count(*) over (partition by cik_str, ticker, title) as dupes
+	from edgar.company_tickers ct
+) t1
+where dupes > 1
+
+
+-- REMOVE DUPLICATES
+delete
+from edgar.company_tickers t1
+using edgar.company_tickers t2
+where t1.ctid < t2.ctid
+and t1.cik_str = t2.cik_str
+and t1.ticker = t2.ticker
+and t1.title = t2.title
 
 
 
+select * from alpha_vantage.active_delisted
 
-
+select * from reference.fundamental_universe
 
 
 
@@ -380,7 +458,7 @@ select count(*) from alpha_vantage.shareprices_daily where symbol = 'AAT' and "t
 
 select * from reference.fundamental_universe where cik = 1144980
 select * from reference.ticker_cik_sic_ind where cik = 1500217
-select * from edgar.edgar_fndmntl_all_tb where (shares_cso > 0 and shares_cso < 10) and (shares_ecso > 0 and shares_ecso < 10)
+select * from edgar.edgar_fndmntl_all_tb where cik = 1750 --(shares_cso > 0 and shares_cso < 10) and (shares_ecso > 0 and shares_ecso < 10)
 
 select * from alpha_vantage.tickers_to_update where symbol not in (select ticker from alpha_vantage.ticker_excl)
 delete from alpha_vantage.ticker_excl where status = 'failed_no_data'
@@ -714,3 +792,4 @@ order by 1,3
 
 $$ language sql immutable
 ;
+

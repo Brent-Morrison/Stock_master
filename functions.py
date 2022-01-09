@@ -14,13 +14,13 @@ import yfinance as yf
 
 
 
-# Connect to database ------------------------------------------------------------------------------------------------------
+# CONNECT TO DATABASE ------------------------------------------------------------------------------------------------------
 
 
-def pg_connect(password):
+def pg_connect(pg_password):
     conn = None
     try:
-        engine = create_engine('postgresql://postgres:'+password+
+        engine = create_engine('postgresql://postgres:'+pg_password+
                                 '@localhost:5432/stock_master?gssencmode=disable')
         
         # https://docs.sqlalchemy.org/en/13/core/connections.html#working-with-raw-dbapi-connections
@@ -37,11 +37,27 @@ def pg_connect(password):
 
 
 
-# get_alphavantage function ------------------------------------------------------------------------------------------------
+
+
+# GET ALPHAVANTAGE PRICE AND EPS DATA --------------------------------------------------------------------------------------
 
 
 def get_alphavantage(symbol, data, outputsize, apikey):
   
+  """Grab Alpha Vantage data price and eps data
+
+  Keyword arguments:
+    symbol (string)                                 stock symbol/ticker for data requested
+    data (string)                                   the series to grab 'prices' or 'eps' (default 'prices')
+    outputsize (string)                             the number of days history to return, 'compact', 100 days, or 'full' - all data
+    apikey (integer)                                Alphavantage API key
+
+  Returns:
+    Data frame conforming to either the 'shareprices_daily' or 'eps' tables of the 'alpha_vantage'schema
+
+  """
+
+
   base_url = 'https://www.alphavantage.co/query?'
   
   if data == 'prices':
@@ -82,7 +98,123 @@ def get_alphavantage(symbol, data, outputsize, apikey):
 
 
 
-# Copy to database ---------------------------------------------------------------------------------------------------------
+
+
+# GET ALPHAVANTAGE EPS DATA --------------------------------------------------------------------------------------
+
+
+def get_av_eps(symbol, av_apikey):
+  
+  """Grab Alpha Vantage eps data
+
+  Keyword arguments:
+    symbol (string)                                 stock symbol/ticker for data requested
+    outputsize (string)                             the number of days history to return, 'compact', 100 days, or 'full' - all data
+    apikey (integer)                                Alphavantage API key
+
+  Returns:
+    Data frame conforming to the 'alpha_vantage.earnings' table schema
+
+  """
+
+
+  base_url = 'https://www.alphavantage.co/query?'
+  function='EARNINGS'
+
+  url = base_url+'function='+function+'&symbol='+symbol+'&apikey='+av_apikey
+  resp = requests.get(url)
+  txt = resp.json()['quarterlyEarnings']
+  df = pd.DataFrame(txt)
+  df = df.rename(columns={
+    'fiscalDateEnding': 'report_date'
+    ,'reportedDate': 'date_stamp'
+    ,'reportedEPS': 'reported_eps'
+    ,'estimatedEPS': 'estimated_eps'
+    ,'surprise': 'eps_surprise'
+    ,'surprisePercentage': 'eps_surprise_perc'
+    })
+  df['capture_date'] = dt.datetime.today().date()
+  df['symbol'] = symbol
+  df = df[[
+    'symbol','date_stamp','report_date','reported_eps','estimated_eps',
+    'eps_surprise','eps_surprise_perc','capture_date'
+    ]]
+  cols = ['reported_eps','estimated_eps','eps_surprise','eps_surprise_perc']
+  df[cols] = df[cols].apply(pd.to_numeric, errors='coerce', axis=1)
+  
+  return df
+
+
+
+
+
+
+
+# GET IEX PRICE DATA -----------------------------------------------------------------
+
+def get_iex_price(symbol, outputsize, api_token):
+
+  """Grab Alpha Vantage data price and eps data
+
+  Keyword arguments:
+    symbol (string)                                 stock symbol/ticker for data requested
+    outputsize (string)                             the number of days history to return, '1m', '3m', 'max'
+    apikey (string)                                 IEX API token
+
+  Returns:
+    Data frame conforming to the 'shareprices_daily' tables of the 'alpha_vantage' schema
+
+  """
+
+  url = 'https://cloud.iexapis.com/stable/stock/'+symbol+'/chart/'+outputsize+'?token='+api_token
+  resp = requests.get(url)
+  lst = resp.json()
+  df = pd.DataFrame(lst, columns=['date','open','high','low','close','fClose','uVolume','key','uClose'])
+  df['capture_date'] = dt.datetime.today().date()
+  df.sort_values('date', ascending=False, inplace=True)
+  df['data_source'] = 'IEX' 
+  #df['date'] = pd.to_datetime(df['date'])
+  
+  df['split_coefficient'] = np.where( \
+    # condition
+    (df['uClose'] - df['fClose'] == 0) & \
+    (df['uClose'].shift(-1) - df['fClose'].shift(-1) != 0) \
+    # true
+    ,df['uClose'].shift(-1) / df['close'].shift(-1),
+    # false
+    1)
+
+  df['dividend_amount'] = np.where( \
+    # condition
+    (df['split_coefficient'] == 1) & \
+    (df['uClose'] - df['fClose'] == 0) & \
+    (df['uClose'].shift(-1) - df['fClose'].shift(-1) != 0) \
+    # true
+    ,df['uClose'].shift(-1) - df['fClose'].shift(-1),
+    # false
+    0)
+
+  df.rename(columns={
+    'date': 'timestamp',
+    'uClose': 'adjusted_close',
+    'fVolume': 'volume',
+    'key': 'symbol'},
+    inplace=True)
+  
+  df = df[[
+    'timestamp','open','high','low','close','adjusted_close',
+    'volume','dividend_amount','split_coefficient','symbol','capture_date','data_source'
+    ]]
+
+  return df
+
+
+
+
+
+
+
+# COPY TO DATABASE ---------------------------------------------------------------------------------------------------------
 
 
 def copy_from_stringio(conn, df, table):
@@ -111,7 +243,8 @@ def copy_from_stringio(conn, df, table):
 
 
 
-# Grab S&P 500 data --------------------------------------------------------------------------------------------------------
+# GRAB S&P 500 DATA --------------------------------------------------------------------------------------------------------
+
 
 def update_sp500_yf(conn):
     
@@ -152,9 +285,12 @@ def update_sp500_yf(conn):
 
 
 
-# --------------------------------------------------------------------------------------------------------------------------
 
-def update_av_data(apikey, conn, update_to_date, data='prices', wait_seconds=15, batch_size= 350):
+
+# UPDATE ALPHA VANTAGE -----------------------------------------------------------------------------------------------------
+
+
+def update_av_data(apikey, conn, update_to_date, data='prices', wait_seconds=15, batch_size = 350):
   
   """Grab Alpha vantage data and write to database
 
@@ -171,10 +307,9 @@ def update_av_data(apikey, conn, update_to_date, data='prices', wait_seconds=15,
 
   """
   
-  # Convert date string to date
-  update_to_date=dt.datetime.strptime(update_to_date, '%Y-%m-%d').date()
 
-  # Grab tickers from database
+  # Grab tickers from database, this is the population
+  # for which data will be pulled
   tickers = pd.read_sql(
     sql=text("""
       select * from alpha_vantage.tickers_to_update
@@ -183,8 +318,11 @@ def update_av_data(apikey, conn, update_to_date, data='prices', wait_seconds=15,
     ,con=conn
     )
 
+  # Convert date parameter from string to date
+  # To be used as data frame filter
+  update_to_date=dt.datetime.strptime(update_to_date, '%Y-%m-%d').date()
 
-  # Re-format tickers array
+  # Re-format tickers array, NaN replacement
   default_date = dt.datetime(1980,12,31).date()
   tickers['last_date_in_db'] = tickers['last_date_in_db'].fillna(default_date)
   tickers['last_adj_close'] = tickers['last_adj_close'].fillna(0)
@@ -227,8 +365,8 @@ def update_av_data(apikey, conn, update_to_date, data='prices', wait_seconds=15,
       print('loop no.', iter_count,':', symbol, 'data up to date, ', round(toc - tic, 2), ' seconds')
       continue
     
-    # If the default date has been returned (via the replacement of NaN's), there is no data, 
-    # therefore run full update
+    # If the default date has been returned (via the replacement of NaN's), 
+    # there is no data, therefore run full update
     elif last_date_in_db == default_date:
       update_mode='full'
     
@@ -342,6 +480,83 @@ def update_av_data(apikey, conn, update_to_date, data='prices', wait_seconds=15,
   
   # Return data frame listing update status
   return update_df
+
+
+
+
+
+
+
+# GRAB & UPDATE ACTIVE / DELISTED DATA -------------------------------------------------------------------------------------
+# get_udpdate_av_active_delisted
+def update_active_delisted(conn, apikey):
+
+  """
+  Refer - https://www.alphavantage.co/documentation/#listing-status
+  If a date is set, the API endpoint will "travel back" in time and return a list of active or delisted 
+  symbols on that particular date in history
+  """
+
+  # Parameters
+  update_date = str(dt.datetime.today().date())
+
+  # urls
+  act_url = 'https://www.alphavantage.co/query?function=LISTING_STATUS&date='+update_date+'&state=active&apikey='+apikey
+  del_url = 'https://www.alphavantage.co/query?function=LISTING_STATUS&date='+update_date+'&state=delisted&apikey='+apikey
+
+  # Get data
+  act_df = pd.read_csv(act_url)
+  del_df = pd.read_csv(del_url)
+
+  # Concatenate, rename and append
+  df = pd.concat([act_df, del_df])
+  df = df.rename(columns={'ipoDate': 'ipo_date', 'delistingDate': 'delist_date'})
+  df['capture_date'] = dt.datetime.today().date()
+  df.loc[df['status'] == 'Active', 'delist_date'] = dt.datetime(9998,12,31).date()
+  df = df.loc[df['assetType'] == 'Stock']
+  df = df.drop('assetType', axis=1)
+  existing = pd.read_sql(sql=text("""select * from alpha_vantage.active_delisted"""), con=conn)
+  update_df = pd.concat([df, existing]).sort_values(by=['symbol', 'capture_date']).drop_duplicates(subset=['symbol','exchange','status'], keep=False)
+
+  # Push to database
+  update_df.to_sql(name='active_delisted', con=conn, schema='alpha_vantage', 
+    index=False, if_exists='append', method='multi', chunksize=5000)
+
+  print(len(update_df), "records inserted")
+
+
+
+
+
+
+
+
+
+
+# LOAD TICKER LIST FROM SEC WEBSITE ----------------------------------------------------------------------------------------
+
+def get_active_delisted(conn):
+
+  # Grab data from SEC website
+  df = pd.read_json('https://www.sec.gov/files/company_tickers.json', orient='index')
+
+  # Check columns returns as expected
+  if df.columns.tolist() != ['cik_str', 'ticker', 'title']:
+    raise ValueError("Retrieved column names have changes from, 'cik_str', 'ticker', 'title' ")
+  
+  df['capture_date'] = dt.datetime.today().date()
+
+  existing = pd.read_sql(sql=text("""select * from edgar.company_tickers"""), con=conn)
+  
+  update_df = pd.concat([df, existing]).sort_values(by=['cik_str','ticker', 'capture_date']).drop_duplicates(subset=['cik_str','ticker'], keep=False)
+
+  # Insert to postgres database
+  update_df.to_sql(name='company_tickers', con=conn, schema='edgar', 
+                          index=False, if_exists='append', method='multi', chunksize=10000)
+
+  print(len(update_df), "records inserted")
+
+
 
 
 
