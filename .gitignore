@@ -140,3 +140,6 @@ dmypy.json
 !.vscode/extensions.json
 .history/
 .vscode/.history/
+postgres.Rproj
+config.json
+.dbeaver/
