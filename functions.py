@@ -14,6 +14,7 @@ import yfinance as yf
 
 
 
+
 # CONNECT TO DATABASE ------------------------------------------------------------------------------------------------------
 
 
@@ -33,6 +34,10 @@ def pg_connect(pg_password):
         #sys.exit(1) 
     print("Connection successful")
     return conn
+
+
+
+
 
 
 
@@ -100,6 +105,10 @@ def get_alphavantage(symbol, data, outputsize, apikey):
 
 
 
+
+
+
+
 # GET ALPHAVANTAGE EPS DATA --------------------------------------------------------------------------------------
 
 
@@ -150,9 +159,13 @@ def get_av_eps(symbol, av_apikey):
 
 
 
+
+
+
 # GET IEX PRICE DATA -----------------------------------------------------------------
 
-def get_iex_price(symbol, outputsize, api_token):
+
+def get_iex_price(symbol, outputsize, api_token, sandbox):
 
   """Grab Alpha Vantage data price and eps data
 
@@ -160,14 +173,38 @@ def get_iex_price(symbol, outputsize, api_token):
     symbol (string)                                 stock symbol/ticker for data requested
     outputsize (string)                             the number of days history to return, '1m', '3m', 'max'
     apikey (string)                                 IEX API token
+    test                                            boolean, if TRUE, grab sandbox data
 
   Returns:
-    Data frame conforming to the 'shareprices_daily' tables of the 'alpha_vantage' schema
+    Data frame conforming to the 'shareprices_daily_raw' tables of the 'alpha_vantage' schema
+    - date_stamp
+    - open
+    - high
+    - low
+    - close
+    - volume
+    - dividend_amount
+    - split_coefficient
+    - capture_date
+    - data_source
 
   """
-
-  url = 'https://cloud.iexapis.com/stable/stock/'+symbol+'/chart/'+outputsize+'?token='+api_token
+  
+  if sandbox:
+    base_url = 'https://sandbox.iexapis.com/stable/stock/'
+  else:
+    base_url = 'https://cloud.iexapis.com/stable/stock/'
+  
+  url = base_url+symbol+'/chart/'+outputsize+'?token='+api_token
   resp = requests.get(url)
+
+  # Capture bad responses (NOT REQUIRED WITH TRY / EXCEPT IN UPDATE LOOP)
+  #if resp.status_code != 200:
+  #  df = pd.DataFrame(columns = [
+  #    'timestamp','open','high','low','close','volume','dividend_amount',
+  #    'split_coefficient','symbol','capture_date','data_source'
+  #    ])
+  #else:
   lst = resp.json()
   df = pd.DataFrame(lst, columns=['date','open','high','low','close','fClose','uVolume','key','uClose'])
   df['capture_date'] = dt.datetime.today().date()
@@ -197,16 +234,19 @@ def get_iex_price(symbol, outputsize, api_token):
   df.rename(columns={
     'date': 'timestamp',
     'uClose': 'adjusted_close',
-    'fVolume': 'volume',
+    'uVolume': 'volume',
     'key': 'symbol'},
     inplace=True)
   
   df = df[[
-    'timestamp','open','high','low','close','adjusted_close',
-    'volume','dividend_amount','split_coefficient','symbol','capture_date','data_source'
+    'timestamp','open','high','low','close','volume','dividend_amount',
+    'split_coefficient','symbol','capture_date','data_source'
     ]]
 
   return df
+
+
+
 
 
 
@@ -239,6 +279,12 @@ def copy_from_stringio(conn, df, table):
         return 1
     print("copy_from_stringio() done")
     cursor.close()
+
+
+
+
+
+
 
 
 
@@ -280,6 +326,9 @@ def update_sp500_yf(conn):
         index=False, if_exists='append', method='multi', chunksize=10000)
     
     print(df_sp500.shape[0]," records inserted into alpha_vantage.shareprices_daily")
+
+
+
 
 
 
@@ -487,6 +536,9 @@ def update_av_data(apikey, conn, update_to_date, data='prices', wait_seconds=15,
 
 
 
+
+
+
 # GRAB & UPDATE ACTIVE / DELISTED DATA -------------------------------------------------------------------------------------
 # get_udpdate_av_active_delisted
 def update_active_delisted(conn, apikey):
@@ -534,6 +586,7 @@ def update_active_delisted(conn, apikey):
 
 
 # LOAD TICKER LIST FROM SEC WEBSITE ----------------------------------------------------------------------------------------
+
 
 def get_active_delisted(conn):
 

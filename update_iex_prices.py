@@ -13,6 +13,7 @@ Data frame containing write status of tickers selected
 """
 
 # Libraries
+from pickle import TRUE
 import sys
 from functions import *
 import json
@@ -22,49 +23,42 @@ with open('config.json', 'r') as f:
     config = json.load(f)
 
 
-# TEST
-#conn = pg_connect('')
-#dummy_date0 = pd.read_sql(sql=text("""select * from test.shareprices_daily_test where symbol = 'YUM' and adjusted_close = 137.98"""),con=conn)
-#dummy_date1 = dummy_date0.values
-#db_date = dummy_date1[0][0]
-#df1 = get_iex('YUM', '1m', 'pk_86b6d51533d847568f83db64c03a5d95')
-#df2 = df1.copy()
-#df2['timestamp'] = pd.to_datetime(df2['timestamp'])
-#df2[df2['timestamp'].dt.month == 12]['dividend_amount'].mean()
-#df2[df2['timestamp'].dt.month == 12]['split_coefficient'].mean()
-#df3 = df1[(df1['timestamp'] > str('2021-12-28')) & (df1['timestamp'] <= str(update_to_date))]
-#df2.to_sql(name='shareprices_daily_test', con=conn, schema='test', index=False, if_exists='append', method='multi', chunksize=10000)
-
-
 # Connect to db
 conn = pg_connect(config['pg_password'])
 
-# TEST
-#conn.execute("""truncate test.shareprices_daily_test""")
+
+# Script parameters
+update_to_date = '2021-12-31' # sys.argv[1]
+wait_seconds = 0.1
+batch_size = 5 # sys.argv[2] 
+test_data_bool = True
 
 
 # IEX API token
-api_token = config['iex_api_token']
-
-update_to_date = '2021-12-31'
-wait_seconds = 0.1
-batch_size = sys.argv[1] #2
+if test_data_bool:
+    api_token = config['iex_test_token']
+else:
+    api_token = config['iex_api_token']
 
 
 # Grab tickers from database, this is the population
 # for which data will be updated
-#tickers = pd.read_csv('C:\\Users\\brent\\Documents\\VS_Code\\postgres\\postgres\\tickers_test.csv')
 tickers = pd.read_sql(
-#sql=text("""
-#    select * from alpha_vantage.tickers_to_update
-#    where symbol not in (select ticker from alpha_vantage.ticker_excl)
-#""")
-sql=text("""select * from test.tickers_to_update""")
+sql=text("""
+    select * from access_layer.tickers_to_update_fn(valid_year_param => 2021, nonfin_cutoff => 950, fin_cutoff => 150)
+    where symbol_ not in (select ticker from alpha_vantage.ticker_excl)
+""")
+### sql=text("""select * from test.tickers_to_update""")
 ,con=conn)
 
 
+# Remove trailing underscores from column names
+tickers.columns = tickers.columns.str.rstrip('_')
+
+
 # Convert date parameter from string to date, for use as data frame filter
-update_to_date=dt.datetime.strptime(update_to_date, '%Y-%m-%d').date()
+update_to_date = dt.datetime.strptime(update_to_date, '%Y-%m-%d').date()
+
 
 # Re-format tickers array, NaN replacement
 default_date = dt.datetime(1980,12,31).date()
@@ -75,6 +69,7 @@ tickers['last_eps_date'] = tickers['last_eps_date'].fillna(default_date)
 
 # Filter data frame for those tickers not yet updated
 ticker_list = tickers[tickers['last_date_in_db'] < update_to_date]
+
 
 # To numpy array
 ticker_list = ticker_list.values
@@ -104,21 +99,13 @@ for ticker in ticker_list:
         print('loop no.', iter_count,':', symbol, 'data up to date, ', round(toc - tic, 2), ' seconds')
         continue
 
-    # If the default date has been returned (via the replacement of NaN's), 
-    # there is no data, therefore run full update
-    #elif last_date_in_db == default_date:
-    #    outputsize = 'max'
 
-    # Else compact (3 months) update
-    #else:
-    #    outputsize= '3m'
-
-    # Get price data from IEX
+    # Get price data from IEX (3 months)
     try:
-        df_raw = get_iex_price(symbol=symbol, outputsize='3m', api_token=api_token)
+        df_raw = get_iex_price(symbol=symbol, outputsize='3m', api_token=api_token, sandbox=test_data_bool)
         time.sleep(wait_seconds)
         
-        # Get last date of IEX data 
+        # Get last date of IEX data
         df_raw_last_date = pd.to_datetime(df_raw.iloc[0,0]).date()
 
     except:
@@ -129,6 +116,7 @@ for ticker in ticker_list:
         print('loop no.', iter_count,':', symbol, 'failed - no data, ', round(toc - tic, 2), ' seconds')
         continue
 
+    ##############################################################################################################################
     # Get the adjusted close downloaded from IEX as at the date of the last price in the database
     df_prices_last_adj_close = df_raw[df_raw['timestamp'] == str(last_date_in_db)]['adjusted_close']
 
@@ -155,7 +143,7 @@ for ticker in ticker_list:
         df_raw = None
         df = None
         try:
-            df_raw = get_iex_price(symbol=symbol, outputsize='max', api_token=api_token)
+            df_raw = get_iex_price(symbol=symbol, outputsize='max', api_token=api_token, sandbox=test_data_bool)
             time.sleep(wait_seconds)
             # Get last date of IEX data 
             df_raw_last_date = pd.to_datetime(df_raw.iloc[0,0]).date()
@@ -176,13 +164,15 @@ for ticker in ticker_list:
             print('loop no.', iter_count,':', symbol, len(df_raw), 'records - no update, ', round(toc - tic, 2), ' seconds')
             continue
 
-        df = df_raw[df_raw['timestamp'] <= str(update_to_date)].copy()
+    # Filter data frame for new dates only
+    df = df_raw[df_raw['timestamp'] <= str(update_to_date)].copy()
 
+    ##############################################################################################################################
 
     # Push to database
     try:
         df.to_sql(name='shareprices_daily_test', con=conn, schema='test', 
-                        index=False, if_exists='append', method='multi', chunksize=10000)        
+                  index=False, if_exists='append', method='multi', chunksize=10000)        
         iter_count += 1
         push_count += 1
         inner = [pd.to_datetime(df_raw_last_date),'succesful_update']
@@ -206,3 +196,22 @@ for ticker in ticker_list:
 #update_df['last_av_date'] = last_av_dates[:,0]
 #update_df['status'] = last_av_dates[:,1]
 #update_df['last_av_date'] = pd.to_datetime(update_df['last_av_date']).dt.date
+
+
+
+# TEST
+#conn = pg_connect('')
+#dummy_date0 = pd.read_sql(sql=text("""select * from test.shareprices_daily_test where symbol = 'YUM' and adjusted_close = 137.98"""),con=conn)
+#dummy_date1 = dummy_date0.values
+#db_date = dummy_date1[0][0]
+#df1 = get_iex('YUM', '1m', 'pk_86b6d51533d847568f83db64c03a5d95')
+#df2 = df1.copy()
+#df2['timestamp'] = pd.to_datetime(df2['timestamp'])
+#df2[df2['timestamp'].dt.month == 12]['dividend_amount'].mean()
+#df2[df2['timestamp'].dt.month == 12]['split_coefficient'].mean()
+#df3 = df1[(df1['timestamp'] > str('2021-12-28')) & (df1['timestamp'] <= str(update_to_date))]
+#df2.to_sql(name='shareprices_daily_test', con=conn, schema='test', index=False, if_exists='append', method='multi', chunksize=10000)
+#conn.execute("""truncate test.shareprices_daily_test""")
+#url = 'https://sandbox.iexapis.com/stable/stock/'+'ZOMsd'+'/chart/'+'3m'+'?token='+'Tpk_0ba8bc52d3fc4dd38b57c06fcb515e57'
+#resp = requests.get(url)
+#if resp.status_code != 200:
