@@ -1,0 +1,12 @@
+#### UBUNTU COMMAND
+/c/Windows/System32/cmd.exe /c C:/Users/brent/Documents/bat_r_test.bat
+
+#### UBUNTU COMMAND2
+cd /c/Windows/System32
+cmd.exe /c C:/Users/brent/Documents/bat_r_test.bat
+
+#### Remove created file directly in Ubuntu / bash
+rm /c/Users/brent/Documents/bat_r_test.csv
+
+#### RUN PYTHON ENV FROM LINUX BASH
+/c/Users/brent/anaconda3/envs/STOCK_MASTER/python.exe C:/Users/brent/Documents/VS_Code/postgres/postgres/price_data_update.py

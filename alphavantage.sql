@@ -143,7 +143,7 @@ create or replace view alpha_vantage.tickers_to_update as
 	select 
 		rfnc.ticker as symbol
 		,av.max_date as last_date_in_db
-		,av.adjusted_close as last_adj_close
+		,av."close" as last_adj_close
 		,eps.max_date as last_eps_date
 	from 
 		(
@@ -152,19 +152,19 @@ create or replace view alpha_vantage.tickers_to_update as
 			from reference.fundamental_universe fu
 			inner join reference.ticker_cik_sic_ind tcsi 
 			on fu.cik = tcsi.cik 
-			where fu.valid_year = 2021
+			where fu.valid_year = 2018  --- TO DO - parameter here
 			and tcsi.delist_date = '9998-12-31'
 		) rfnc
 	left join 
 		(
 			select 
 			distinct on (symbol) symbol
-			,timestamp as max_date
-			,adjusted_close
-			from alpha_vantage.shareprices_daily
+			,date_stamp as max_date
+			,"close"
+			from access_layer.shareprices_daily_raw
 			order by 
 			symbol
-			,timestamp desc
+			,date_stamp desc
 		) av
 	on rfnc.ticker = av.symbol
 	left join
@@ -315,7 +315,7 @@ order by 1,3
 * alpha_vantage.daily_price_ts_fn
 * 
 * DESCRIPTION:
-* Create function to extract monthly price data for defined universe 
+* Function to extract monthly price data for defined universe for year under analysis
 * 
 * https://www.endpoint.com/blog/2008/12/11/why-is-my-function-slow
 * https://stackoverflow.com/questions/35914518/postgres-function-slower-than-query-postgres-8-4 
@@ -330,7 +330,7 @@ order by 1,3
 ******************************************************************************/
 
 select * from alpha_vantage.daily_price_ts_fn(valid_year_param => 2021, nonfin_cutoff => 100, fin_cutoff => 50)
-where symbol_ in ('ADT','BGNE','EBIX','KOSN','TUSK')
+where symbol_ in ('AAPL')
 
 create or replace function alpha_vantage.daily_price_ts_fn
 
@@ -363,20 +363,13 @@ return query
 with prices as 
 	(
 		select 
-		"timestamp"
+		date_stamp as "timestamp"
 		,symbol
 		,close
-		,adjusted_close
+		,close as adjusted_close
 		,volume
-		from 
-			(	-- Capture most recent version of price data (i.e., split & dividend adjusted)
-				select 
-				sd.* 
-				,row_number() over (partition by "timestamp", symbol order by capture_date desc) as row_num
-				from alpha_vantage.shareprices_daily sd 
-			) t1
-		where row_num = 1
-		and symbol != 'GSPC'
+		from access_layer.shareprices_daily
+		where symbol != 'GSPC'
 	)
 
 ,sp_500 as 
@@ -384,7 +377,7 @@ with prices as
 		select 
 		"timestamp",
 	    adjusted_close as sp500
-	    from alpha_vantage.shareprices_daily
+	    from access_layer.shareprices_daily
 		where symbol = 'GSPC'
     )
 

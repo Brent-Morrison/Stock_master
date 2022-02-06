@@ -198,13 +198,7 @@ def get_iex_price(symbol, outputsize, api_token, sandbox):
   url = base_url+symbol+'/chart/'+outputsize+'?token='+api_token
   resp = requests.get(url)
 
-  # Capture bad responses (NOT REQUIRED WITH TRY / EXCEPT IN UPDATE LOOP)
-  #if resp.status_code != 200:
-  #  df = pd.DataFrame(columns = [
-  #    'timestamp','open','high','low','close','volume','dividend_amount',
-  #    'split_coefficient','symbol','capture_date','data_source'
-  #    ])
-  #else:
+
   lst = resp.json()
   df = pd.DataFrame(lst, columns=['date','open','high','low','close','fClose','uVolume','key','uClose'])
   df['capture_date'] = dt.datetime.today().date()
@@ -232,15 +226,15 @@ def get_iex_price(symbol, outputsize, api_token, sandbox):
     0)
 
   df.rename(columns={
-    'date': 'timestamp',
+    'date': 'date_stamp',
     'uClose': 'adjusted_close',
     'uVolume': 'volume',
     'key': 'symbol'},
     inplace=True)
   
   df = df[[
-    'timestamp','open','high','low','close','volume','dividend_amount',
-    'split_coefficient','symbol','capture_date','data_source'
+    'symbol','date_stamp','open','high','low','close','volume',
+    'dividend_amount','split_coefficient','capture_date','data_source'
     ]]
 
   return df

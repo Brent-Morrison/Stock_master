@@ -13,13 +13,12 @@ Data frame containing write status of tickers selected
 """
 
 # Libraries
-from pickle import TRUE
 import sys
 from functions import *
 import json
 
 # Load config file
-with open('config.json', 'r') as f:
+with open('C:\\Users\\brent\\Documents\\VS_Code\\postgres\\postgres\\config.json', 'r') as f:
     config = json.load(f)
 
 
@@ -28,36 +27,45 @@ conn = pg_connect(config['pg_password'])
 
 
 # Script parameters
-update_to_date = '2021-12-31' # sys.argv[1]
+batch_size = sys.argv[1] # 10 #
+update_to_date = sys.argv[2] # '2022-01-15' #
+test_data_bool_raw = sys.argv[3] # True #
 wait_seconds = 0.1
-batch_size = 5 # sys.argv[2] 
-test_data_bool = True
 
+# Convert to integer
+batch_size = int(batch_size)
+
+# Convert 'test_data_bool_raw' to boolean
+test_data_bool = True
+if test_data_bool_raw.lower() == 't':
+    test_data_bool = True
+elif test_data_bool_raw.lower() == 'f':
+    test_data_bool = False
+
+# Convert date parameter from string to date, for use as data frame filter
+update_to_date = dt.datetime.strptime(update_to_date, '%Y-%m-%d').date()
 
 # IEX API token
 if test_data_bool:
     api_token = config['iex_test_token']
+    schema_name = 'test'
+    tbl_name = 'shareprices_daily_iex'
 else:
     api_token = config['iex_api_token']
+    schema_name = 'iex'
+    tbl_name = 'shareprices_daily'
 
 
 # Grab tickers from database, this is the population
 # for which data will be updated
 tickers = pd.read_sql(
-sql=text("""
-    select * from access_layer.tickers_to_update_fn(valid_year_param => 2021, nonfin_cutoff => 950, fin_cutoff => 150)
-    where symbol_ not in (select ticker from alpha_vantage.ticker_excl)
-""")
-### sql=text("""select * from test.tickers_to_update""")
+sql=text("""select * from access_layer.tickers_to_update_fn(valid_year_param => 2021, nonfin_cutoff => 950, fin_cutoff => 150)""")
+#sql=text("""select * from test.tickers_to_update""")  ## TOGGLE FOR TEST ##
 ,con=conn)
 
 
 # Remove trailing underscores from column names
-tickers.columns = tickers.columns.str.rstrip('_')
-
-
-# Convert date parameter from string to date, for use as data frame filter
-update_to_date = dt.datetime.strptime(update_to_date, '%Y-%m-%d').date()
+tickers.columns = tickers.columns.str.rstrip('_')      ## TOGGLE FOR TEST ##
 
 
 # Re-format tickers array, NaN replacement
@@ -75,10 +83,12 @@ ticker_list = tickers[tickers['last_date_in_db'] < update_to_date]
 ticker_list = ticker_list.values
 
 
-# Update loop 
+# Initialise loop variables 
 iter_count = 0
 push_count = 0
-last_av_dates = []
+logging_list = []
+
+# Loop
 for ticker in ticker_list:
     tic = time.perf_counter() 
     symbol = ticker[0]
@@ -93,10 +103,10 @@ for ticker in ticker_list:
     # If data is up to date exit current loop 
     if last_date_in_db >= update_to_date:
         iter_count += 1
-        inner = [last_date_in_db,'data_up_to_date']
-        last_av_dates.append(inner)
         toc = time.perf_counter()
-        print('loop no.', iter_count,':', symbol, 'data up to date, ', round(toc - tic, 2), ' seconds')
+        log_item = [ticker[0], last_date_in_db, default_date, 0, 0, 'data_up_to_date', round(toc - tic, 2)]
+        logging_list.append(log_item)
+        print('loop no.', iter_count,':', symbol, 'data up to date, ', round(toc - tic, 2), 'seconds')
         continue
 
 
@@ -106,96 +116,48 @@ for ticker in ticker_list:
         time.sleep(wait_seconds)
         
         # Get last date of IEX data
-        df_raw_last_date = pd.to_datetime(df_raw.iloc[0,0]).date()
+        df_raw_last_date = pd.to_datetime(df_raw.iloc[0,1]).date()
 
     except:
         iter_count += 1
-        inner = [default_date,'failed_no_data']
-        last_av_dates.append(inner)
         toc = time.perf_counter()
-        print('loop no.', iter_count,':', symbol, 'failed - no data, ', round(toc - tic, 2), ' seconds')
+        log_item = [ticker[0], last_date_in_db, default_date, 0, 0, 'failed_no_data', round(toc - tic, 2)]
+        logging_list.append(log_item)
+        print('loop no.', iter_count,':', symbol, 'failed - no data, ', round(toc - tic, 2), 'seconds')
         continue
 
-    ##############################################################################################################################
-    # Get the adjusted close downloaded from IEX as at the date of the last price in the database
-    df_prices_last_adj_close = df_raw[df_raw['timestamp'] == str(last_date_in_db)]['adjusted_close']
-
-    # This can return NONE if there is a gap in trading (see GPOR April to May 2021),
-    # check if empty and assign 0 if so
-    df_prices_last_adj_close_values = df_prices_last_adj_close.values
-    if df_prices_last_adj_close_values.size == 0:
-        df_prices_last_adj_close_values = 0
-
-    # If the new adjusted close is not different to the existing adjusted close, and 
-    # there has not been a dividend, and there has not been a split, filter for new dates only
-
-    # Filter df for update records only
-    df = df_raw[(df_raw['timestamp'] > str(last_date_in_db)) & (df_raw['timestamp'] <= str(update_to_date))].copy()
-
-    # Boolean for equality of close, existence of dividend and split
-    # If any of these are true, a full data refresh is required
-    close_equal_ind = abs(np.round(df_prices_last_adj_close_values,2) - np.round(last_adj_close,2)) >= 0.02
-    split_ind = df['split_coefficient'].mean() != 1
-    dividend_ind = df['dividend_amount'].mean() != 1
-
-    # Gather the full extract if any of the above conditions are true 
-    if close_equal_ind or split_ind or dividend_ind:
-        df_raw = None
-        df = None
-        try:
-            df_raw = get_iex_price(symbol=symbol, outputsize='max', api_token=api_token, sandbox=test_data_bool)
-            time.sleep(wait_seconds)
-            # Get last date of IEX data 
-            df_raw_last_date = pd.to_datetime(df_raw.iloc[0,0]).date()
-        except:
-            iter_count += 1
-            inner = [default_date,'failed_no_data']
-            last_av_dates.append(inner)
-            toc = time.perf_counter()
-            print('loop no.', iter_count,':', symbol, 'failed - no data, ', round(toc - tic, 2), ' seconds')
-            continue
-        
-        # Exit loop if there are no records to update
-        if len(df_raw) == 0:
-            iter_count += 1
-            inner = [pd.to_datetime(df_raw_last_date),'nil_records_no_update']
-            last_av_dates.append(inner)
-            toc = time.perf_counter()
-            print('loop no.', iter_count,':', symbol, len(df_raw), 'records - no update, ', round(toc - tic, 2), ' seconds')
-            continue
 
     # Filter data frame for new dates only
-    df = df_raw[df_raw['timestamp'] <= str(update_to_date)].copy()
-
-    ##############################################################################################################################
+    df = df_raw[(df_raw['date_stamp'] <= str(update_to_date)) & (df_raw['date_stamp'] > str(last_date_in_db))].copy()
 
     # Push to database
     try:
-        df.to_sql(name='shareprices_daily_test', con=conn, schema='test', 
+        df.to_sql( con=conn, schema=schema_name, name=tbl_name,  
                   index=False, if_exists='append', method='multi', chunksize=10000)        
         iter_count += 1
         push_count += 1
-        inner = [pd.to_datetime(df_raw_last_date),'succesful_update']
-        last_av_dates.append(inner)
         toc = time.perf_counter()
-        print('loop no.', iter_count,':', symbol, len(df_raw), 'records updated, ', round(toc - tic, 2), ' seconds')
+        log_item = [ticker[0], last_date_in_db, df_raw_last_date, len(df_raw), len(df), 'succesful_update', round(toc - tic, 2)]
+        logging_list.append(log_item)
+        print('loop no.', iter_count,':', symbol, len(df_raw), 'records updated, ', round(toc - tic, 2), 'seconds')
         print('push no.', push_count)
     except:
         iter_count += 1
-        inner = [pd.to_datetime(df_raw_last_date),'failed_push_to_db']
-        last_av_dates.append(inner)
         toc = time.perf_counter()
-        print('loop no.', iter_count,':', symbol, 'failed - unable to push to db, ', round(toc - tic, 2), ' seconds')
+        log_item = [ticker[0], last_date_in_db, default_date, 0, 0, 'failed_push_to_db', round(toc - tic, 2)]
+        logging_list.append(log_item)
+        print('loop no.', iter_count,':', symbol, 'failed - unable to push to db, ', round(toc - tic, 2), 'seconds')
         continue
 
 
 # Create data frame containing update status
-#update_df = pd.DataFrame(data=ticker_list[:len(last_av_dates),:3], 
-#    columns=['ticker','last_date_in_db','price']) # Error - column "last_eps_date" of relation "update_df" does not exist
-#last_av_dates = np.array(last_av_dates)
-#update_df['last_av_date'] = last_av_dates[:,0]
-#update_df['status'] = last_av_dates[:,1]
-#update_df['last_av_date'] = pd.to_datetime(update_df['last_av_date']).dt.date
+logging_df = pd.DataFrame(data=logging_list, 
+    columns=['ticker','last_date_in_db','last_date_retrieved'
+        ,'records_retrieved','records_updated','status','loop_time']) 
+logging_df['capture_date'] = dt.datetime.today().date()
+
+# Write to csv
+logging_df.to_csv('C:\\Users\\brent\\Documents\\VS_Code\\postgres\\postgres\\update_iex_price_log.csv')
 
 
 
@@ -204,7 +166,7 @@ for ticker in ticker_list:
 #dummy_date0 = pd.read_sql(sql=text("""select * from test.shareprices_daily_test where symbol = 'YUM' and adjusted_close = 137.98"""),con=conn)
 #dummy_date1 = dummy_date0.values
 #db_date = dummy_date1[0][0]
-#df1 = get_iex('YUM', '1m', 'pk_86b6d51533d847568f83db64c03a5d95')
+#df1 = get_iex_price('YUM', '1m', 'Tpk_0ba8bc52d3fc4dd38b57c06fcb515e57', sandbox=True)
 #df2 = df1.copy()
 #df2['timestamp'] = pd.to_datetime(df2['timestamp'])
 #df2[df2['timestamp'].dt.month == 12]['dividend_amount'].mean()

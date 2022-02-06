@@ -59,15 +59,20 @@ where refobjid = 'reference.ticker_cik_sic_ind'::regclass and deptype = 'n';
 
 -- AV data status
 select 
-symbol
-,min(timestamp) as min_date
-,max(timestamp) as max_date
-,count(*) as records
-from alpha_vantage.shareprices_daily 
-where 1 = 1
-and symbol = 'HCC'
-group by symbol
-order by max_date desc, symbol
+t1.*
+,(date_trunc('month', max_date) + interval '1 month' - interval '1 day')::date - max_date as days_from_month_end
+from 
+	(
+		select 
+		symbol
+		,max(timestamp) as max_date
+		--,count(*) as records
+		from alpha_vantage.shareprices_daily 
+		where 1 = 1
+		and symbol != 'GSPC'
+		group by symbol
+		--order by max_date desc, symbol
+	) t1
 
 
 -- Simfin data status
@@ -113,9 +118,18 @@ select max(timestamp) from alpha_vantage.shareprices_daily where symbol = 'GSPC'
 -- Query in R "price_attribute" function
 select * from alpha_vantage.daily_price_ts_fn(valid_year_param => 2020, nonfin_cutoff => 900, fin_cutoff => 100)
 
+select * from edgar.num
 
+select * from (
+select 'num' as table, sec_qtr, count(*) as n from edgar.num group by 1,2
+--union all 
+--select 'pre' as table, sec_qtr, count(*) as n from edgar.pre group by 1,2
+union all 
+select 'sub' as table, sec_qtr, count(*) as n from edgar.sub group by 1,2
+union all 
+select 'tag' as table, sec_qtr, count(*) as n from edgar.tag group by 1,2
+) t1 order by 2 desc, 1 asc
 
-select sec_qtr, count(*) as n from edgar.num group by 1
 
 select * from edgar.num_stage where adsh in ('0000006955-21-000003','0000006955-21-000012')
 select sec_qtr , count(*) as n from edgar.num group by 1
@@ -135,9 +149,17 @@ select * from test.shareprices_daily_test where "timestamp" = '2021-10-29' and s
 select * from alpha_vantage.shareprices_daily where symbol = 'XOM' order by "timestamp"
 
 alter table test.shareprices_daily_test add column data_source varchar(5) null default 'AVE';
-select * from test.shareprices_daily_test where symbol = 'DLTR' order by "timestamp" desc
+select * from test.shareprices_daily_test where dividend_amount != 1 --symbol = 'DLTR' order by "timestamp" desc
 select * from test.shareprices_daily_test where split_coefficient != 1 order by "timestamp" desc
-select * from alpha_vantage.shareprices_daily where symbol = 'DLTR' order by "timestamp" desc
+select * from alpha_vantage.shareprices_daily where symbol = 'ANAT' order by "timestamp" desc
+
+select * from test.shareprices_daily_test where capture_date = '2022-01-29' --and symbol = 'DBI' order by 1
+select count(*) from test.shareprices_daily_test where capture_date = '2022-01-27' --"timestamp" = '2022-01-14' --27'
+delete from test.shareprices_daily_test where capture_date = '2022-01-28'
+select max("timestamp") from test.shareprices_daily_test
+update test.tickers_to_update set last_date_in_db = '2021-12-31'::date
+select * from access_layer.tickers_to_update_fn(valid_year_param => 2021, nonfin_cutoff => 950, fin_cutoff => 150)
+select * from alpha_vantage.earnings where symbol = 'AAPL' order by date_stamp desc
 
 select 
 symbol
@@ -173,7 +195,7 @@ select * from test.tickers_to_update
 -- Test load AV csv
 create table test.shareprices_daily_test as select * from alpha_vantage.shareprices_daily limit 10;
 delete from test.shareprices_daily_test;
-select * from test.shareprices_daily_test;
+delete from test.shareprices_daily_test where symbol in ('A','AA','AAL') and "timestamp" > '2021-11-30';
 
 create table test.shareprices_daily_test_idx as table test.shareprices_daily_test with no data;
 create index shareprices_daily_idx on test.shareprices_daily_test_idx using btree (symbol, "timestamp")
@@ -670,126 +692,410 @@ order by 2,5
 
 
 
-select * from alpha_vantage.price_ts_fn(valid_year_param => 2020, nonfin_cutoff => 10, fin_cutoff => 10)
 
-create or replace function alpha_vantage.price_ts_fn
+
+
+
+
+
+
+
+
+select * from iex.shareprices_daily
+select * from test.shareprices_daily_iex;
+
+create table test.shareprices_daily_iex (
+	symbol text,
+	date_stamp date,
+	"open" numeric,
+	high numeric,
+	low numeric,
+	"close" numeric,
+	volume numeric,
+	dividend_amount numeric,
+	split_coefficient numeric,
+	capture_date date,
+	data_source varchar(5)
+);
+create unique index shareprices_daily_iex_idx on test.shareprices_daily_iex using btree (symbol, date_stamp);
+
+
+select * from access_layer.tickers_to_update_fn(valid_year_param => 2021, nonfin_cutoff => 950, fin_cutoff => 150)
+alter table test.shareprices_daily_iex drop column adjusted_close
+select * from test.shareprices_daily_iex
+
 
 (
-	fin_cutoff 			int 	default 100
-	,nonfin_cutoff 		int 	default 900
-	,valid_year_param	int		default 2021
+select * 
+from test.shareprices_daily_iex		-- TEST
+--from iex.shareprices_daily		-- PROD
+union all 
+select
+symbol
+,date_stamp
+,"open"
+,high
+,low
+,"close"
+,volume
+,dividend_amount
+,split_coefficient
+,capture_date 
+,data_source 
+from test.shareprices_daily_acc		-- TEST
+--from access_layer.shareprices_daily	-- PROD
+)
+
+
+SELECT FORMAT('Hello, %s','PostgreSQL');
+
+select * from test.shareprices_daily_acc order by symbol, date_stamp -- 2021-09-30 to 2021-11-30
+select * from test.shareprices_daily_iex -- 2021-12-01 to 2022-01-31
+
+
+-- START HERE ----------------------------------------------------------
+--======================================================================
+
+--ADJUSTED PRICE FUNCTION
+
+drop function test.adj_price_fn1(text,date,date);
+
+create or replace function test.adj_price_fn1
+(
+	test_bool		text default 'T'
+	,start_date		date default '2021-12-31'
+	,end_date		date default '2022-01-31'
+) 
+
+returns table 
+(
+	symbol 				text
+	,date_stamp			date
+	,"open"				numeric
+	,high				numeric
+	,low				numeric
+	,"close"			numeric
+	,volume				numeric
+	,dividend_amount	numeric
+	,split_coefficient 	numeric
+	,capture_date 		date
+	,data_source 		varchar(5)
+	,prior_close		numeric
+	,rtn_ari_1d_		numeric
+	,start_date_		integer
+) 
+
+as $body$
+
+declare
+	iex_table_name text;
+	acc_table_name text;
+
+begin
+	
+if test_bool = 'T' then
+	iex_table_name := 'test.shareprices_daily_iex'::regclass;
+	acc_table_name := 'test.shareprices_daily_acc'::regclass;
+else 
+	iex_table_name := 'access_layer.shareprices_daily'::regclass;
+	acc_table_name := 'access_layer.shareprices_daily'::regclass;
+end if;
+
+
+return query
+	
+
+select 
+t2.*
+,(close - ((prior_close/split_coefficient)*((prior_close/split_coefficient)-dividend_amount) / (prior_close/split_coefficient)))
+	/     ((prior_close/split_coefficient)*((prior_close/split_coefficient)-dividend_amount) / (prior_close/split_coefficient)) as rtn_ari_1d_ 
+,case when lead("close",1) over (partition by symbol order by date_stamp) is null then 1 else 0 end as start_date_
+from 
+	(
+		select 
+		t1.* 
+		,lag("close",1) over (partition by symbol order by date_stamp) as prior_close
+		from 
+		(
+			select * 
+			from test.shareprices_daily_iex		-- TEST
+			--from iex.shareprices_daily		-- PROD
+			where date_stamp between start_date and end_date
+			union all 
+			select
+			symbol
+			,date_stamp
+			,"open"
+			,high
+			,low
+			,"close"
+			,volume
+			,dividend_amount
+			,split_coefficient
+			,capture_date 
+			,data_source 
+			from test.shareprices_daily_iex		-- TEST
+			from access_layer.shareprices_daily	-- PROD
+			where date_stamp < start_date
+		) t1
+	) t2
+order by symbol, date_stamp desc;
+
+end;
+$body$ language plpgsql stable;
+
+
+select * from test.adj_price_fn1('T', '2021-12-01', '2022-01-31') where symbol = 'AAPL'
+select * from test.adj_price_fn1('F', '2021-12-01', '2022-01-31') where symbol = 'AAPL'
+
+
+
+-- ADJUSTED PRICE VIEW
+
+create or replace view test.adj_price_vw as 
+		select 
+		t2.*
+		,(close - ((prior_close/split_coefficient)*((prior_close/split_coefficient)-dividend_amount) / (prior_close/split_coefficient)))
+			/     ((prior_close/split_coefficient)*((prior_close/split_coefficient)-dividend_amount) / (prior_close/split_coefficient)) as rtn_ari_1d 
+		,case when lead("close",1) over (partition by symbol order by date_stamp) is null then 1 else 0 end as start_date
+		from 
+			(
+				select 
+				t1.* 
+				,lag("close",1) over (partition by symbol order by date_stamp) as prior_close
+				from 
+				(
+					select * 
+					from test.shareprices_daily_iex		-- TEST
+					--from iex.shareprices_daily		-- PROD
+					union all 
+					select
+					symbol
+					,date_stamp
+					,"open"
+					,high
+					,low
+					,"close"
+					,volume
+					,dividend_amount
+					,split_coefficient
+					,capture_date 
+					,data_source 
+					from test.shareprices_daily_acc		-- TEST
+					--from access_layer.shareprices_daily	-- PROD
+				) t1
+			) t2
+		order by symbol, date_stamp desc;
+
+	
+select * from test.adj_price_vw where symbol = 'AAPL'	
+--select count(*) from access_layer.shareprices_daily
+
+
+--======================================================================
+
+--CALC. ADJUSTED PRICE
+
+drop function test.adj_price_fn(text);
+
+create or replace function test.adj_price_fn
+(
+	sym text default 'XOM'
 ) 
 
 returns table 
 (
 	symbol_ 			text
-	,sector_ 			text
 	,date_stamp_		date
-	,"close_"			numeric
+	,open_				numeric
+	,high_				numeric
+	,low_				numeric
+	,close_				numeric
 	,adjusted_close_	numeric
 	,volume_			numeric
-	,sp500_				numeric
-	,valid_year_ind_ 	text
-) as $$
+	,dividend_amount_	numeric
+	,split_coefficient_ numeric
+	,capture_date_ 		date
+	,data_source_ 		varchar(5)
+) as 
 
-with prices as 
-	(
-		select 
-		"timestamp"
-		,symbol
-		,close
-		,adjusted_close
-		,volume
-		from 
-			(	-- Capture most recent version of price data (i.e., split & dividend adjusted)
-				select 
-				sd.* 
-				,row_number() over (partition by "timestamp", symbol order by capture_date desc) as row_num
-				from alpha_vantage.shareprices_daily sd 
-			) t1
-		where row_num = 1
-		and symbol != 'GSPC'
-	)
+$body$
 
-,sp_500 as 
-	(
-		select 
-		"timestamp",
-	    adjusted_close as sp500
-	    from alpha_vantage.shareprices_daily spd
-	    inner join 
-			(
-				select 
-				max("timestamp") as last_trade_date
-				from alpha_vantage.shareprices_daily
-				where symbol = 'GSPC'
-				group by date_trunc('month', "timestamp") 	
-			) ltd
-	    on spd."timestamp" = ltd.last_trade_date
-		where symbol = 'GSPC'
-    )
+declare
+ 	r 			test.adj_price_vw%ROWTYPE;
+ 	next_rtn	numeric;
+	next_close	numeric;
 
-,ind_ref as 
-	(
-		select
-		ind.ticker 
-		,lk.lookup_val4 as sector
-		,case -- see TO DO
-			when ind.sic::int between 6000 and 6500 then 'financial' 
-			else 'non_financial' end as fin_nonfin
-		from reference.ticker_cik_sic_ind ind
-		left join reference.lookup lk
-		on ind.simfin_industry_id = lk.lookup_ref::int
-		and lk.lookup_table = 'simfin_industries' 
-	)	
+begin
+
+	for r in
+		select * 
+		from test.adj_price_vw			-- NOTE 1. this needs to contain new and existing data, use new function
+		where symbol = sym 
 	
-,universe as 
-	(	
-		select 
-			t.ticker 
-			,t.sic
-			,i.sector
-			,f.valid_year 
-			,t.ipo_date as start_date
-			,t.delist_date as end_date
-			,case 
-				when lag(f.valid_year) over (partition by t.ticker order by f.valid_year) is null then make_date(f.valid_year-2,1,1) 
-				else make_date(f.valid_year,1,1) 
-				end as start_year
-			,make_date(f.valid_year,12,31) as end_year
-		from 
-			reference.fundamental_universe f
-			left join reference.ticker_cik_sic_ind t
-			on f.cik = t.cik
-			left join ind_ref i
-			on t.ticker = i.ticker
-		where ( 
-			(i.fin_nonfin  = 'financial' and f.combined_rank <= $1) or 
-			(i.fin_nonfin != 'financial' and f.combined_rank <= $2)
-			)
-			and f.valid_year = $3
-	)
+	loop
+		if r.start_date = 1 then
+			symbol_ 			:= r.symbol;
+			date_stamp_			:= r.date_stamp;
+			open_				:= r."open";
+			high_				:= r."high";
+			low_				:= r."low";
+			close_				:= r."close";
+			adjusted_close_		:= r."close";
+			volume_				:= r.volume;
+			dividend_amount_	:= r.dividend_amount;
+			split_coefficient_ 	:= r.split_coefficient;
+			capture_date_ 		:= r.capture_date;
+			data_source_ 		:= r.data_source;
+
+		else
+			symbol_ 			:= r.symbol;
+			date_stamp_			:= r.date_stamp;
+			open_				:= r."open";
+			high_				:= r."high";
+			low_				:= r."low";
+			close_				:= r."close";
+			adjusted_close_		:= next_close / (1 + next_rtn);  
+			volume_				:= r.volume;
+			dividend_amount_	:= r.dividend_amount;
+			split_coefficient_ 	:= r.split_coefficient;
+			capture_date_ 		:= r.capture_date;
+			data_source_ 		:= r.data_source;
+		end if;
+		
+		return next;
+		
+		next_rtn 	:= r.rtn_ari_1d;
+		next_close	:= adjusted_close_;
+		
+	end loop;
 	
-select
-	prices.symbol
-	,universe.sector
-	,prices."timestamp" as date_stamp 
-	,prices."close"
-	,prices.adjusted_close
-	,prices.volume
-	,sp_500.sp500
-	,case when extract(year from prices."timestamp") = universe.valid_year then 'valid' else 'invalid' end as valid_year_ind
-from 
-	prices
-	inner join universe
-	on prices.symbol = universe.ticker
-	and prices."timestamp" between universe.start_date and universe.end_date
-	and prices."timestamp" between universe.start_year and universe.end_year
-	inner join sp_500
-	on prices."timestamp" = sp_500."timestamp" 
-order by 1,3 
-;
+	return;
 
-$$ language sql immutable
-;
+end;
+$body$ language plpgsql stable;
 
+
+
+select * from test.adj_price_fn('ABBV'::text) order by symbol_, date_stamp_ desc;
+
+
+
+
+--=======================================================================================
+
+--INSERT TO TABLE
+
+drop procedure test.insert_adj_price();
+
+create or replace procedure test.insert_adj_price
+(
+	start_date		date
+	,end_date		date
+) as 
+
+$body$
+
+declare
+ 	r				record;
+
+begin
+
+	-- loop over the newly added data
+	for r in
+		select 
+		symbol
+		,avg(split_coefficient) as split_ind
+		,sum(dividend_amount) as div_ind
+		from test.shareprices_daily_iex 	-- TEST
+		--from iex.shareprices_daily 		-- PROD
+		where date_stamp between start_date and end_date
+		group by 1
+		order by 1
+		
+	loop
+		if (r.split_ind != 1 or r.div_ind != 0) then 
+			-- there has been a split or dividend, therefore update adjusted close
+			raise notice 'insert and update for : %', r.symbol;
+			
+			insert into test.shareprices_daily_acc  			-- TEST
+			--insert into access_layer.shareprices_daily  		-- PROD
+			select
+			symbol_				as symbol
+			,date_stamp_		as date_stamp
+			,open_				as "open"
+			,high_				as high
+			,low_				as low
+			,close_				as "close"
+			,adjusted_close_	as adjusted_close
+			,volume_			as volume
+			,dividend_amount_	as dividend_amount
+			,split_coefficient_	as split_coefficient
+			,capture_date_ 		as capture_date
+			,data_source_ 		as data_source
+			from test.adj_price_fn(r.symbol)					-- NOTE 1. this needs to contain new and existing data
+			on conflict (symbol, date_stamp)
+			--on constraint shareprices_daily_acc_idx 			-- TEST
+			--on constraint access_layer.shareprices_daily_idx 	-- PROD 
+			do update set adjusted_close = excluded.adjusted_close;
+			
+		else
+			-- there has NOT been a split or dividend, adjusted close update NOT required
+			-- insert directly from IEX table
+			raise notice 'insert only for : %', r.symbol;
+			
+			insert into test.shareprices_daily_acc  			-- TEST
+			--insert into access_layer.shareprices_daily  		-- PROD
+			select 
+			symbol
+			,date_stamp
+			,open
+			,high
+			,low
+			,"close"
+			,"close" as adjusted_close
+			,volume
+			,dividend_amount
+			,split_coefficient
+			,capture_date
+			,data_source 
+			from test.shareprices_daily_iex						-- TEST
+			--from iex.shareprices_daily						-- PROD
+			where symbol = r.symbol 
+			and date_stamp between start_date and end_date
+			on conflict 
+			do nothing;
+	
+		end if;
+	
+	end loop;
+	
+end;
+$body$ language plpgsql;
+
+
+call test.insert_adj_price('2021-12-01', '2022-01-31');
+
+
+-- Procedures for resetting test data
+-- 1. Reset adjusted close to dummy value (99)
+update test.shareprices_daily_acc 
+set adjusted_close = 99
+where symbol in (select distinct symbol from (
+	select 
+	symbol
+	,avg(split_coefficient) as split_ind
+	,sum(dividend_amount) as div_ind
+	from test.shareprices_daily_iex 	-- TEST
+	--from iex.shareprices_daily 		-- PROD
+	where date_stamp between '2021-12-01' and '2022-01-31'
+	group by 1
+	having avg(split_coefficient) != 1
+	or sum(dividend_amount) != 0
+	) t1);
+
+-- Delete data appended
+delete from test.shareprices_daily_acc where date_stamp between '2021-12-01' and '2022-01-31';
+
+-- Check
+select * from test.shareprices_daily_acc where symbol not in ('AAP','AAT','AAN','A','ABBV');

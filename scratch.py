@@ -16,21 +16,14 @@ df0 = pd.read_sql(
 sql=text("""
     select 
     symbol
-    ,"timestamp"
+    ,date_stamp
     ,close
     ,volume 
     ,dividend_amount 
     ,split_coefficient 
     ,capture_date 
-    from 
-        (	-- Capture most recent version of price data (i.e., split & dividend adjusted)
-            select 
-            sd.* 
-            ,row_number() over (partition by "timestamp", symbol order by capture_date desc) as row_num
-            from alpha_vantage.shareprices_daily sd 
-        ) t1
-    where row_num = 1
-    and symbol in ('AAPL','DLTR','XOM')
+    from access_layer.shareprices_daily_raw
+    where symbol in ('AAPL','DLTR','XOM')
     order by 1,2 desc
 """)
 ,con=conn
@@ -47,12 +40,19 @@ df1['div_adj_fctr'] = np.where( \
     ,0 #df1['div_adj_fctr'].shift(1)
     )
 
-df1['max_date'] = df1.groupby('symbol')['timestamp'].transform(max)
+df1['max_date'] = df1.groupby('symbol')['date_stamp'].transform(max)
 
 df1['div_adj_fctr0'] = np.select( \
-    [df1['max_date'] == df1['timestamp'], df1['dividend_amount'].shift(1) != 0]  #.groupby('symbol')
-    ,[1, (df1['close'] - df1['dividend_amount'].shift(1)) / df1['close']]
-    ,np.nan
+    [
+        df1['max_date'] == df1['date_stamp'],                               # cond 1
+        df1['dividend_amount'].shift(1) != 0                                # cond 2
+    ]  
+    ,
+    [
+        1,                                                                  # choice 1
+        (df1['close'] - df1['dividend_amount'].shift(1)) / df1['close']     # choice 2
+    ]
+    ,np.nan                                                                 # default
     )
 
 df1['div_adj_fctr1'] = df1.groupby('symbol')['div_adj_fctr0'].fillna(method="ffill")
@@ -61,3 +61,14 @@ df1['rtn_ari_1d'] = (df1['close']-(df1['close'].shift(-1)*((df1['close'].shift(-
     (df1['close'].shift(-1)*(df1['close'].shift(-1)-df1['dividend_amount'])/df1['close'].shift(-1))
 
 df1['rtn_log_1d'] = np.log(1+df1['rtn_ari_1d'])
+
+
+df1['adjusted_close'] = np.where( \
+    # condition
+    df1['max_date'] == df1['date_stamp'] \
+    # true
+    ,df1['close'] \
+    # false
+    ,df1['adjusted_close'].shift(1) / (1 + df1['rtn_ari_1d'].shift(1))
+    #,df1['close'].shift(1)
+    )
