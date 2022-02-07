@@ -1,14 +1,80 @@
 /******************************************************************************
 * 
+* UPDATE PROCEDURES
+* 
+* 
+* 
+******************************************************************************/
+
+do
+$$
+declare
+    f record;
+begin
+    for f in 
+		select 
+		symbol
+		,avg(split_coefficient) as split_ind
+		,sum(dividend_amount) as div_ind
+		from 
+			(
+			select 
+			symbol
+			,date_stamp 
+			,split_coefficient
+			,dividend_amount
+			--from test.shareprices_daily_iex 	-- TEST
+			from iex.shareprices_daily 		-- PROD
+			where date_stamp between '2021-12-01' and '2022-01-31'
+			
+			except 
+			
+			select 
+			symbol
+			,date_stamp 
+			,split_coefficient
+			,dividend_amount
+			--from test.shareprices_daily_acc 	-- TEST
+			from access_layer.shareprices_daily 		-- PROD
+			where date_stamp between '2021-12-01' and '2022-01-31'
+			) t1
+		group by 1
+		order by 1
+    loop 
+		
+    	-- call insert function
+    	call access_layer.insert_adj_price(f.symbol, '2021-12-01', '2022-01-31');
+
+    end loop;
+end;
+$$
+
+
+-- Update checks
+select * from access_layer.shareprices_daily where date_stamp = '2022-01-31'
+
+select symbol, capture_date, min(date_stamp), max(date_stamp) 
+from access_layer.shareprices_daily 
+where date_stamp > '2021-10-31'
+group by 1,2
+order by 1,2 desc
+
+
+
+
+
+
+/******************************************************************************
+* 
 * PROCEDURES FOR TESTING FUNCTIONS AND RESETTING TEST DATA
 * 
 * 
 * 
 ******************************************************************************/
 
-alter table test.shareprices_daily_acc add constraint shareprices_daily_acc_con unique (dist_id, zipcode);
+alter table test.shareprices_daily_acc add constraint shareprices_daily_acc_con unique (symbol, date_stamp);
 
-call test.insert_adj_price('2021-12-01', '2022-01-31');
+call test.insert_adj_price('ABBV', '2021-12-01', '2022-01-31');
 
 -- 1. Reset adjusted close to dummy value (99)
 update test.shareprices_daily_acc 
@@ -34,7 +100,10 @@ select * from test.shareprices_daily_acc
 where 1= 1 --symbol not in ('AAP','AAT','AAN','A','ABBV') 
 order by symbol, date_stamp desc;
 
-select symbol, min(date_stamp), max(date_stamp) from test.shareprices_daily_acc group by 1 order by 1;
+select symbol, min(date_stamp), max(date_stamp) 
+from access_layer.shareprices_daily sd 
+--from test.shareprices_daily_acc 
+group by 1 order by 1;
 
 
 
@@ -53,8 +122,9 @@ drop procedure test.insert_adj_price();
 
 create or replace procedure test.insert_adj_price
 (
-	start_date		date
-	,end_date		date
+	sym 			text default 'XOM'
+	,start_date		date default '2021-12-31'
+	,end_date		date default '2021-01-31'
 ) as 
 
 $body$
@@ -65,6 +135,7 @@ declare
 begin
 
 	-- loop over the newly added data
+	-- (this loop is redundant with symbol filter, retain for convenience)
 	for r in
 		select 
 		symbol
@@ -73,6 +144,7 @@ begin
 		from test.shareprices_daily_iex 	-- TEST
 		--from iex.shareprices_daily 		-- PROD
 		where date_stamp between start_date and end_date
+		and symbol = sym
 		group by 1
 		order by 1
 		
@@ -176,7 +248,7 @@ create or replace type test.adj_price_fn_loop as
 -- Function
 create or replace function test.adj_price_fn
 (
-	sym text default 'XOM'
+	sym 			text default 'XOM'
 	,start_date		date default '2021-12-31'
 	,end_date		date default '2022-01-31'
 ) 
@@ -208,9 +280,9 @@ begin
 
 	for r in
 		select * 
-		from test.adj_price_union(start_date, end_date)
+		from test.adj_price_union(sym, start_date, end_date)
 		--from test.adj_price_vw			-- NOTE 1. this needs to contain new and existing data, use new function
-		where symbol_ = sym 
+		--where symbol_ = sym 
 	
 	loop
 		if r.start_date_ = 1 then
@@ -269,11 +341,12 @@ select * from test.adj_price_fn('ABBV','2021-12-31','2022-01-31');
 * 
 ******************************************************************************/
 
-drop function test.adj_price_union(date, date);
+drop function test.adj_price_union(text, date, date);
 
 create or replace function test.adj_price_union
 (
-	start_date		date default '2021-12-31'
+	sym 			text default 'XOM'
+	,start_date		date default '2021-12-31'
 	,end_date		date default '2022-01-31'
 ) 
 
@@ -317,6 +390,7 @@ from
 			from test.shareprices_daily_iex		-- TEST
 			--from iex.shareprices_daily		-- PROD
 			where date_stamp between start_date and end_date
+			and symbol = sym
 			union all 
 			select
 			symbol
@@ -333,6 +407,7 @@ from
 			from test.shareprices_daily_acc			-- TEST
 			--from access_layer.shareprices_daily	-- PROD
 			where date_stamp < start_date
+			and symbol = sym
 		) t1
 	) t2
 order by symbol, date_stamp desc;
@@ -341,5 +416,5 @@ end;
 $$ language plpgsql stable;
 
 
-select * from test.adj_price_union('2021-12-01', '2022-01-31') where symbol_ = 'ABBV' order by symbol_, date_stamp_ desc;
-select * from test.adj_price_union('2021-12-01', '2022-01-31') where symbol_ = 'AAPL'
+
+select * from test.adj_price_union('ABBV', '2021-12-01', '2022-01-31')
