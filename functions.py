@@ -206,7 +206,10 @@ def get_iex_price(symbol, outputsize, api_token, sandbox):
   df['data_source'] = 'IEX' 
   #df['date'] = pd.to_datetime(df['date'])
   
-  df['split_coefficient'] = np.where( \
+  # Splits can implied in error when dividend adjustments are appled 
+  # in error to the split adjusted column.  The two sections below filter very low
+  # split values (that relating to incorrect dividend data)  
+  df['split_coefficient_raw'] = np.where( \
     # condition
     (df['uClose'] - df['fClose'] == 0) & \
     (df['uClose'].shift(-1) - df['fClose'].shift(-1) != 0) \
@@ -214,6 +217,15 @@ def get_iex_price(symbol, outputsize, api_token, sandbox):
     ,df['uClose'].shift(-1) / df['close'].shift(-1),
     # false
     1)
+
+  df['split_coefficient'] = np.where( \
+    # condition
+    np.abs(df['split_coefficient_raw']) < 1.2 \
+    # true
+    ,1,
+    # false
+    df['split_coefficient_raw'])
+
 
   df['dividend_amount'] = np.where( \
     # condition
@@ -284,42 +296,73 @@ def copy_from_stringio(conn, df, table):
 
 
 # GRAB S&P 500 DATA --------------------------------------------------------------------------------------------------------
+update_to_date='2022-01-31'
+table_name='shareprices_daily'
+schema_name='access_layer'
 
-
-def update_sp500_yf(conn):
+def update_sp500_yf(conn, update_to_date, table_name, schema_name):
     
-    """Grab S&P 500 series using yfinance and write to database"""
-    
-    df_sp500 = yf.download('^GSPC')
-    df_sp500.reset_index(inplace=True)
-    df_sp500['dividend_amount'] = 0
-    df_sp500['split_coefficient'] = 0
-    df_sp500['symbol'] = 'GSPC'
-    df_sp500['capture_date'] = dt.datetime.today().date()
-    df_sp500.columns = ['timestamp','open','high','low','close','adjusted_close',
-    'volume','dividend_amount','split_coefficient','symbol','capture_date']
+    """Grab S&P 500 series using yfinance and write to database
+      
+    Keyword arguments:
+      schema (string)         schema of the insert table
+      table (string)          the insert table
+      update_to_date (date)   the update date
 
-    # Max date of existing data
-    max_date = pd.read_sql(sql=text(
-    """select max(timestamp) 
-    from alpha_vantage.shareprices_daily 
+    Returns:
+      Print conformation of records inserted
+    
+    """
+    
+    # Update to date
+    update_to_date = dt.datetime.strptime(update_to_date, '%Y-%m-%d').date()
+
+    # Max date of existing data 
+    # TO DO - PARAMETERISE WITH SCHEMA.TABLE
+    last_date_in_db = pd.read_sql(sql=text(
+    """select max(date_stamp) 
+    from access_layer.shareprices_daily 
     where symbol = 'GSPC'"""),
-    con=conn)
+    con=conn)['max'][0]
 
-    # Convert max_date to list
-    #max_date = max_date['max'].tolist()
+    # Check that the data is not already up tp date
+    if last_date_in_db > update_to_date:
+      print('Nil records inserted - data is up to date')
 
-    # Convert datetime to date
-    df_sp500['timestamp'] = pd.to_datetime(df_sp500['timestamp']).dt.date
+    else:
+      df_sp500 = yf.download('^GSPC')
+      df_sp500.reset_index(inplace=True)
+      
+      # Check the structure of the data frame returned
+      if np.all(df_sp500.columns != ['Date','Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']):
+        print('The data retrieved from yfinance does not conform to the expected column format')
+      
+      else:
+        #print('OK')
+        df_sp500['dividend_amount'] = 0
+        df_sp500['split_coefficient'] = 0
+        df_sp500['symbol'] = 'GSPC'
+        df_sp500['capture_date'] = dt.datetime.today().date()
+        df_sp500['data_source'] = 'yfnc'
+        df_sp500.columns = ['date_stamp','open','high','low','close','adjusted_close',
+        'volume','dividend_amount','split_coefficient','symbol','capture_date','data_source']
 
-    # Return only data post existing date
-    df_sp500 = df_sp500[df_sp500['timestamp'] > max_date['max'][0]].copy()
+        # Re-arrange
+        df_sp500 = df_sp500[['symbol','date_stamp','open','high','low','close','adjusted_close',
+        'volume','dividend_amount','split_coefficient','capture_date','data_source']]
 
-    # Insert to postgres database
-    df_sp500.to_sql(name='shareprices_daily', con=conn, schema='alpha_vantage', 
-        index=False, if_exists='append', method='multi', chunksize=10000)
-    
-    print(df_sp500.shape[0]," records inserted into alpha_vantage.shareprices_daily")
+        # Convert datetime to date
+        df_sp500['date_stamp'] = pd.to_datetime(df_sp500['date_stamp']).dt.date
+
+        # Return only data post existing date
+        df_sp500 = df_sp500[(df_sp500['date_stamp'] > last_date_in_db) & (df_sp500['date_stamp'] <= update_to_date)].copy()
+
+        # Insert to postgres database
+        df_sp500.to_sql(name=table_name, con=conn, schema=schema_name, 
+            index=False, if_exists='append', method='multi', chunksize=10000)
+        
+        # TO DO - PARAMETERISE WITH SCHEMA.TABLE
+        print(df_sp500.shape[0]," records inserted into access_layer.shareprices_daily")
 
 
 

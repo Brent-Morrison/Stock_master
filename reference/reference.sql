@@ -290,7 +290,7 @@ order by
 -- Test function
 select * 
 from reference.universe_time_series_fn(nonfin_cutoff => 900, fin_cutoff => 100, valid_year_param => 2019) 
-where symbol in ('ADT','BGNE','EBIX','KOSN','TUSK')
+where symbol in ('AGFC','ALXN','BGNE','EBIX','KOSN','TUSK')
 
 select 
 extract(year from date_stamp) as yr 

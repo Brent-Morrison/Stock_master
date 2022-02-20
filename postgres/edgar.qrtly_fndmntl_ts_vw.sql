@@ -18,7 +18,9 @@
 ******************************************************************************/
 	
 --Test
-select * from edgar.qrtly_fndmntl_ts_vw where ticker in ('AAPL','BGNE','EBIX','TUSK') order by 5,2 
+select * from edgar.qrtly_fndmntl_ts_vw where ticker in ('AAPL','ALXN','BGNE','EBIX','TUSK') order by 5,2 
+select * from (select ticker, report_date, count(*) over (partition by ticker, report_date) as n from edgar.qrtly_fndmntl_ts_vw) t1 where n > 1
+select * from edgar.qrtly_fndmntl_ts_vw where date_available >= '2016-09-01' and date_available <= '2018-12-31' and ticker not in ('ALXN','AMC','CACI','CRL','DYN','FDS','HZNP','IKBR','OA')
 
 create or replace view edgar.qrtly_fndmntl_ts_vw as 
 
@@ -79,22 +81,42 @@ with fndmntl as
 		
 		from
 			edgar.edgar_fndmntl_all_tb fnd
-			left join reference.ticker_cik_sic_ind tik
+			left join 
+				(
+				select 
+				distinct on (ticker) t.*
+				from reference.ticker_cik_sic_ind t
+				order by ticker, delist_date asc
+				) tik 
 			on fnd.cik = tik.cik 
 	)
-	
+/*  -- FOR USE IN FUNCTION
+	,universe as 
+	(	
+		select * 
+		from reference.yearly_universe_fn
+		(
+		nonfin_cutoff => nonfin_cutoff_
+		,fin_cutoff => fin_cutoff_
+		,valid_year_param => valid_year_param_
+		)
+
+	)
+*/	
 ,ind_ref as 
 	(
-		select
+		select distinct
 		ind.ticker 
 		,lk.lookup_val4 as sector
-		,case 
+		--,lk.lookup_val5 as industry
+		,case -- see TO DO
 			when ind.sic::int between 6000 and 6500 then 'financial' 
 			else 'non_financial' end as fin_nonfin
-		from reference.ticker_cik_sic_ind ind
+		from reference.ticker_cik_sic_ind ind  -- CREATES A DUPE RE ALXN, TWO RECORDS IN THIS TABLE AFTER DELIST	
 		left join reference.lookup lk
 		on ind.simfin_industry_id = lk.lookup_ref::int
 		and lk.lookup_table = 'simfin_industries' 
+		where lk.lookup_val4 != '13' -- ignore records with default industry
 	)	
 	
 ,universe as 
@@ -103,7 +125,9 @@ with fndmntl as
 			t.ticker 
 			,t.sic
 			,i.sector
+			--,i.industry
 			,i.fin_nonfin
+			,f.valid_year 
 			,t.ipo_date as start_date
 			,t.delist_date as end_date
 			,case 
@@ -113,16 +137,21 @@ with fndmntl as
 			,make_date(f.valid_year,12,31) as end_year
 		from 
 			reference.fundamental_universe f
-			left join reference.ticker_cik_sic_ind t
+			left join 
+				(
+				select 
+				distinct on (ticker) t.*
+				from reference.ticker_cik_sic_ind t
+				order by ticker, delist_date asc
+				) t  -- CREATES A DUPE RE ALXN, TWO RECORDS IN THIS TABLE AFTER DELIST	
 			on f.cik = t.cik
 			left join ind_ref i
 			on t.ticker = i.ticker
-		where 
-			(i.fin_nonfin = 'financial' and f.combined_rank < 100) or
-			(i.fin_nonfin != 'financial' and f.combined_rank < 900) 
-		order by
-			t.ticker 
-			,f.valid_year
+		where ( 
+			(i.fin_nonfin  = 'financial' and f.combined_rank <= 100) or 
+			(i.fin_nonfin != 'financial' and f.combined_rank <= 900)
+			)
+		order by t.ticker, f.valid_year
 	)
 	
 select

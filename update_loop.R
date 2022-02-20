@@ -22,7 +22,7 @@ source("C:/Users/brent/Documents/VS_Code/postgres/postgres/return_attributes.R")
 # Connect to db
 con <- stock_master_connect()
 
-# Loop loading multiple years
+# Loop loading multiple years, dates in the list below should be year end dates
 dates <- c('2021-11-30')
 upload_data_list <- list()
 missing_data_list <- list()
@@ -41,12 +41,6 @@ for (date in dates) {
     return_df = TRUE
   )
   
-  #counter <- counter + 1
-  #if (counter == 1) {
-  #  result_set_agg <- result_set$missing_data
-  #} else {
-  #  result_set_agg <- rbind(result_set_agg$missing_data, result_set$missing_data)
-  #}
   
   # Insert data frame results of "price_attributes" function into lists 
   upload_data_list[[date]] <- result_set$upload_data

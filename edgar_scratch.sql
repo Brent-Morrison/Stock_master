@@ -679,20 +679,35 @@ order by 2,5
 
 
 
+select * from access_layer.daily_sp500_ts_vw where extract(year from date_stamp) = 2021
+
+CREATE OR REPLACE VIEW access_layer.daily_sp500_ts_vw AS 
+SELECT 
+date_stamp,
+symbol,
+close,
+adjusted_close,
+volume
+FROM access_layer.shareprices_daily
+WHERE symbol = 'GSPC'::text;
 
 
 
 
 
+CREATE OR REPLACE VIEW access_layer.splits_vw AS 
+	SELECT 
+	symbol,
+	date_stamp,
+	(date_trunc('month'::text, date_stamp::timestamp with time zone) + '1 mon'::interval)::date - 1 AS me_date,
+	split_coefficient AS split_coef
+	FROM access_layer.shareprices_daily
+	WHERE split_coefficient <> 1::numeric AND symbol <> 'GSPC'::text
+	ORDER BY symbol, date_stamp;
 
 
-
-
-
-
-
-
-
+select count(*) from access_layer.fundamental_attributes where extract(year from date_stamp) = 2021
+delete from access_layer.fundamental_attributes where extract(year from date_stamp) = 2021
 
 
 
@@ -701,8 +716,8 @@ order by 2,5
 
 
 select symbol, max(date_stamp) from access_layer.shareprices_daily group by 1 order by 2
-select * from iex.shareprices_daily
-select * from test.shareprices_daily_iex;
+select * from iex.shareprices_daily where date_stamp >'2021-11-30' and (dividend_amount != 0 or split_coefficient != 1)
+select * from edgar.qrtly_fndmntl_ts_vw where date_available >= '2017-12-31' and date_available <= '2021-12-31'
 
 create table test.shareprices_daily_iex (
 	symbol text,
@@ -725,3 +740,86 @@ alter table test.shareprices_daily_iex drop column adjusted_close
 select * from test.shareprices_daily_iex
 
 
+-- COMPLETENESS CHECK
+select * from (
+	select 
+	univ.symbol
+	,univ.date_stamp
+	--,coalesce(stocks.symbol, lag(stocks.symbol, 1) over (order by gspc.date_stamp)) as symbol
+	,case when stocks.date_stamp isnull then 1 else 0 end as miss_ind 
+	from
+		(
+			select stock_univ.symbol_ as symbol
+			,gspc.date_stamp
+			from access_layer.tickers_to_update_fn(valid_year_param => 2021, nonfin_cutoff => 950, fin_cutoff => 150) stock_univ
+			cross join 
+			(
+				select date_stamp
+				from access_layer.shareprices_daily  
+				where symbol = 'GSPC' 
+				and date_stamp > '2021-12-31'
+			) gspc
+		) univ
+	left join 
+		(
+			select symbol, date_stamp 
+			from access_layer.shareprices_daily 
+			where date_stamp > '2021-12-31' 
+		) stocks 
+	on univ.date_stamp = stocks.date_stamp 
+	and univ.symbol = stocks.symbol
+) t1 
+where miss_ind = 1
+--where symbol = 'WSBCP'
+order by 1, 2 desc	
+
+
+
+
+
+alter table access_layer.return_attributes rename to return_attributes_old
+
+insert into access_layer.return_attributes 
+select
+symbol 
+, date_stamp
+, close
+, adjusted_close
+, volume 
+, rtn_log_1m 
+, amihud_1m 
+, amihud_60d 
+, amihud_vol_60d
+, vol_ari_20d 
+, vol_ari_60d 
+, vol_ari_120d 
+, skew_ari_120d 
+, kurt_ari_120d 
+, smax_20d 
+, cor_rtn_1d_mkt_120d 
+, beta_rtn_1d_mkt_120d 
+, rtn_ari_1m 
+, rtn_ari_3m 
+, rtn_ari_6m 
+, rtn_ari_12m 
+, ra.sector 
+, ind.industry::smallint
+, suv 
+, ipc
+from access_layer.return_attributes_old ra
+left join (
+		select distinct
+		ind.ticker 
+		,lk.lookup_val4 as sector
+		,lk.lookup_val5 as industry
+		,case -- see TO DO
+			when ind.sic::int between 6000 and 6500 then 'financial' 
+			else 'non_financial' end as fin_nonfin
+		from reference.ticker_cik_sic_ind ind  -- CREATES A DUPE RE ALXN, TWO RECORDS IN THIS TABLE AFTER DELIST	
+		left join reference.lookup lk
+		on ind.simfin_industry_id = lk.lookup_ref::int
+		and lk.lookup_table = 'simfin_industries' 
+		where lk.lookup_val4 != '13' -- ignore records with default industry
+) ind
+on ra.symbol = ind.ticker
+order by 1,2

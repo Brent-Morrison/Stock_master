@@ -27,9 +27,9 @@ conn = pg_connect(config['pg_password'])
 
 
 # Script parameters
-batch_size = sys.argv[1] # 10 #
-update_to_date = sys.argv[2] # '2022-01-15' #
-test_data_bool_raw = sys.argv[3] # True #
+batch_size = sys.argv[1]            # 6 #
+update_to_date = sys.argv[2]        # '2022-02-04' #
+test_data_bool_raw = sys.argv[3]    # 'T' #
 wait_seconds = 0.1
 
 # Convert to integer
@@ -60,7 +60,7 @@ else:
 # for which data will be updated
 tickers = pd.read_sql(
 sql=text("""select * from access_layer.tickers_to_update_fn(valid_year_param => 2021, nonfin_cutoff => 950, fin_cutoff => 150)""")
-#sql=text("""select * from test.tickers_to_update""")  ## TOGGLE FOR TEST ##
+#sql=text("""select * from test.tickers_to_update where symbol in ('B','BA','BAX','BBBY','HWM','INT','INTC') order by 1""")  ## TOGGLE FOR TEST ##
 ,con=conn)
 
 
@@ -109,26 +109,48 @@ for ticker in ticker_list:
         print('loop no.', iter_count,':', symbol, 'data up to date, ', round(toc - tic, 2), 'seconds')
         continue
 
+    if last_date_in_db == default_date:
+        # Get price data from IEX (full update)
+        try:
+            df_raw = get_iex_price(symbol=symbol, outputsize='max', api_token=api_token, sandbox=test_data_bool)
+            time.sleep(wait_seconds)
+            
+            # Get last date of IEX data
+            df_raw_last_date = pd.to_datetime(df_raw.iloc[0,1]).date()
 
-    # Get price data from IEX (3 months)
-    try:
-        df_raw = get_iex_price(symbol=symbol, outputsize='3m', api_token=api_token, sandbox=test_data_bool)
-        time.sleep(wait_seconds)
-        
-        # Get last date of IEX data
-        df_raw_last_date = pd.to_datetime(df_raw.iloc[0,1]).date()
-
-    except:
-        iter_count += 1
-        toc = time.perf_counter()
-        log_item = [ticker[0], last_date_in_db, default_date, 0, 0, 'failed_no_data', round(toc - tic, 2)]
-        logging_list.append(log_item)
-        print('loop no.', iter_count,':', symbol, 'failed - no data, ', round(toc - tic, 2), 'seconds')
-        continue
+        except:
+            iter_count += 1
+            toc = time.perf_counter()
+            log_item = [ticker[0], last_date_in_db, default_date, 0, 0, 'failed_no_data', round(toc - tic, 2)]
+            logging_list.append(log_item)
+            print('loop no.', iter_count,':', symbol, 'failed - no data, ', round(toc - tic, 2), 'seconds')
+            continue
 
 
-    # Filter data frame for new dates only
-    df = df_raw[(df_raw['date_stamp'] <= str(update_to_date)) & (df_raw['date_stamp'] > str(last_date_in_db))].copy()
+        # Filter data frame for new dates only
+        df = df_raw[(df_raw['date_stamp'] <= str(update_to_date)) & (df_raw['date_stamp'] > str(last_date_in_db))].copy()
+
+    else:
+        # Get price data from IEX (3 months)
+        try:
+            df_raw = get_iex_price(symbol=symbol, outputsize='3m', api_token=api_token, sandbox=test_data_bool)
+            time.sleep(wait_seconds)
+            
+            # Get last date of IEX data
+            df_raw_last_date = pd.to_datetime(df_raw.iloc[0,1]).date()
+
+        except:
+            iter_count += 1
+            toc = time.perf_counter()
+            log_item = [ticker[0], last_date_in_db, default_date, 0, 0, 'failed_no_data', round(toc - tic, 2)]
+            logging_list.append(log_item)
+            print('loop no.', iter_count,':', symbol, 'failed - no data, ', round(toc - tic, 2), 'seconds')
+            continue
+
+
+        # Filter data frame for new dates only
+        df = df_raw[df_raw['date_stamp'] <= str(update_to_date)].copy()
+     
 
     # Push to database
     try:
@@ -166,7 +188,8 @@ logging_df.to_csv('C:\\Users\\brent\\Documents\\VS_Code\\postgres\\postgres\\upd
 #dummy_date0 = pd.read_sql(sql=text("""select * from test.shareprices_daily_test where symbol = 'YUM' and adjusted_close = 137.98"""),con=conn)
 #dummy_date1 = dummy_date0.values
 #db_date = dummy_date1[0][0]
-#df1 = get_iex_price('YUM', '1m', 'Tpk_0ba8bc52d3fc4dd38b57c06fcb515e57', sandbox=True)
+#df1 = get_iex_price('YUM', '3m', 'Tpk_0ba8bc52d3fc4dd38b57c06fcb515e57', sandbox=True)
+df1 = get_iex_price('PAGP', '3m', 'pk_86b6d51533d847568f83db64c03a5d95', sandbox=False)
 #df2 = df1.copy()
 #df2['timestamp'] = pd.to_datetime(df2['timestamp'])
 #df2[df2['timestamp'].dt.month == 12]['dividend_amount'].mean()
@@ -175,5 +198,9 @@ logging_df.to_csv('C:\\Users\\brent\\Documents\\VS_Code\\postgres\\postgres\\upd
 #df2.to_sql(name='shareprices_daily_test', con=conn, schema='test', index=False, if_exists='append', method='multi', chunksize=10000)
 #conn.execute("""truncate test.shareprices_daily_test""")
 #url = 'https://sandbox.iexapis.com/stable/stock/'+'ZOMsd'+'/chart/'+'3m'+'?token='+'Tpk_0ba8bc52d3fc4dd38b57c06fcb515e57'
-#resp = requests.get(url)
+url = 'https://cloud.iexapis.com/stable/stock/'+'PAGP'+'/chart/'+'3m'+'?token='+'pk_86b6d51533d847568f83db64c03a5d95'
+resp = requests.get(url)
+lst = resp.json()
+df1 = pd.DataFrame(lst)
+df1.to_csv('PAGP.CSV')
 #if resp.status_code != 200:

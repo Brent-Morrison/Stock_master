@@ -23,17 +23,18 @@ stock_master_connect <- function() {
 
 
 
-# Function definition - insert ---------------------------------------------------------------------------------------------
+# Function definition - price_attributes -----------------------------------------------------------------------------------
 
 price_attributes <- function(
   end_date, 
   con = NULL, 
-  months_to_load = 12, 
+  months_to_load = 12,
+  deciles = FALSE,
   write_to_db = TRUE, 
   disconnect = FALSE, 
   return_df = TRUE) {
   
-  # -----------------------------------------------------------------------------------------------
+  # ------------------------------------------------------------------------------------------------------------------------
   #
   # Script to extract stock price data from postgres database, enrich with
   # various "technical indicator" attributes and write to database.
@@ -50,7 +51,7 @@ price_attributes <- function(
   # 6. Error capture for amihud calculation if volume is zero or return nil
   # 7. Add upside and downside versions of correlation, beta and volatility
   #
-  # -----------------------------------------------------------------------------------------------
+  # ------------------------------------------------------------------------------------------------------------------------
   
   start_time <- Sys.time()
   
@@ -77,7 +78,7 @@ price_attributes <- function(
   
   
 
-  # Database connection and price data retrieval --------------------------------------------------
+  # Database connection and price data retrieval -------------------------------------------------------------------------
   
   
   # Check database connection exists
@@ -98,9 +99,7 @@ price_attributes <- function(
   
   
   # Read price data
-  #sql1 <- "select * from alpha_vantage.daily_price_ts_vw where date_stamp >= ?start_date and date_stamp <= ?end_date"
-  #sql1 <- sqlInterpolate(conn = con, sql = sql1, start_date = start_date, end_date = end_date)
-  sql1 <- "select * from alpha_vantage.daily_price_ts_fn(valid_year_param => ?valid_year_param, nonfin_cutoff => 900, fin_cutoff => 100)"
+  sql1 <- "select * from access_layer.daily_price_ts_fn(valid_year_param_ => ?valid_year_param, nonfin_cutoff_ => 900, fin_cutoff_ => 100)"
   sql1 <- sqlInterpolate(conn = con, sql = sql1, valid_year_param = valid_year_param)
   qry1 <- dbSendQuery(conn = con, statement = sql1) 
   df_raw <- dbFetch(qry1)
@@ -110,7 +109,7 @@ price_attributes <- function(
   
   
   # Extract valid trading days from S&P500 series
-  sql2 <- "select * from alpha_vantage.daily_sp500_ts_vw where extract(year from date_stamp) = ?valid_year_param"
+  sql2 <- "select * from access_layer.daily_sp500_ts_vw where extract(year from date_stamp) = ?valid_year_param"
   sql2 <- sqlInterpolate(conn = con, sql = sql2, valid_year_param = valid_year_param)
   qry2 <- dbSendQuery(conn = con, statement = sql2) 
   valid_year_trade_days <- dbFetch(qry2)
@@ -289,9 +288,13 @@ price_attributes <- function(
       rtn_ari_12m             = (adjusted_close-lag(adjusted_close, 12))/lag(adjusted_close, 12)
     ) %>% 
     ungroup() %>% 
-    # Add stock sector column (discarded with group by) via join to df_raw 
+    # Add stock sector & industry column (discarded with group by) via join to df_raw 
     left_join(
-      group_by(df_raw, symbol) %>% summarise(sector = mean(as.numeric(sector))), 
+      group_by(df_raw, symbol) %>% 
+        summarise(
+          sector   = mean(as.numeric(sector)),
+          industry = mean(as.numeric(industry))
+          ), 
       by = 'symbol'
     )
   
@@ -395,16 +398,19 @@ price_attributes <- function(
   
   
   # Join dataframes
-  monthly <- inner_join(monthly1, monthly2, by = c('date_stamp', 'symbol'))
-  monthly <- inner_join(monthly, monthly3, by = c('date_stamp', 'symbol'))
+  if (deciles) {
+    monthly <- inner_join(monthly1, monthly2, by = c('date_stamp', 'symbol'))
+    monthly <- inner_join(monthly, monthly3, by = c('date_stamp', 'symbol'))
+  } else {
+    monthly <- monthly1
+  }
   
   
   # Filter for date range required for update
   monthly <- filter(monthly, date_stamp > as.Date(end_date) %m-% months(months_to_load))
   
   
-  # Check nulls
-  # Number of stock months with NA's
+  # Check nulls - number of stock months with NA's
   monthly_na_records <- monthly %>% 
     filter_all(any_vars(is.na(.))) %>% 
     group_by(symbol) %>% 
@@ -414,23 +420,26 @@ price_attributes <- function(
   
   
   # Convert to data frame for upload to database (drop NA's except fwd return)
-  #comp_case_param <- match('fwd_rtn_1m', names(monthly1))
-  #monthly <- monthly %>% filter(complete.cases(.[,-comp_case_param])) %>% as.data.frame(monthly)
   monthly <- monthly %>% drop_na() %>% as.data.frame(monthly)
   
   
 
-  # Write to postgres database --------------------------------------------------------------------
+  # Write to postgres database ---------------------------------------------------------------------------------------------
 
-  
   if (write_to_db) {
+    
+    # Clear existing data
+    sql3 <- "delete from access_layer.return_attributes where extract(year from date_stamp) = ?valid_year_param"
+    sql3 <- sqlInterpolate(conn = con, sql = sql3, valid_year_param = valid_year_param)
+    
+    # Write to db
     dbWriteTable(
       conn = con, 
       name = SQL('access_layer.return_attributes'), 
       value = monthly, 
       row.names = FALSE, 
       append = TRUE
-    )
+      )
   }
   
   

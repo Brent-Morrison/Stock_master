@@ -129,41 +129,9 @@ create table access_layer.return_attributes
 		, rtn_ari_6m numeric
 		, rtn_ari_12m numeric
 		, sector smallint
+		, industry smallint
 		, suv numeric
 		, ipc numeric
-		, rtn_ari_1m_dcl smallint
-		, rtn_ari_3m_dcl smallint
-		, rtn_ari_6m_dcl smallint
-		, rtn_ari_12m_dcl smallint
-		, amihud_1m_dcl smallint
-		, amihud_60d_dcl smallint
-		, amihud_vol_60d_dcl smallint
-		, vol_ari_20d_dcl smallint
-		, vol_ari_60d_dcl smallint
-		, vol_ari_120d_dcl smallint
-		, skew_ari_120d_dcl smallint
-		, kurt_ari_120d_dcl smallint
-		, smax_20d_dcl smallint
-		, cor_rtn_1d_mkt_120d_dcl smallint
-		, beta_rtn_1d_mkt_120d_dcl smallint
-		, suv_120d_dcl smallint
-		, ipc_120d_dcl smallint
-		, rtn_ari_1m_sctr_dcl smallint
-		, rtn_ari_3m_sctr_dcl smallint
-		, rtn_ari_6m_sctr_dcl smallint
-		, rtn_ari_12m_sctr_dcl smallint
-		, amihud_1m_sctr_dcl smallint
-		, amihud_60d_sctr_dcl smallint
-		, amihud_vol_60d_sctr_dcl smallint
-		, vol_ari_20d_sctr_dcl smallint
-		, vol_ari_60d_sctr_dcl smallint
-		, vol_ari_120d_sctr_dcl smallint
-		, skew_ari_120d_sctr_dcl smallint
-		, kurt_ari_120d_sctr_dcl smallint
-		, smax_20d_sctr_dcl smallint
-		, cor_rtn_1d_mkt_120d_sctr_dcl smallint
-		, beta_rtn_1d_mkt_120d_sctr_dcl smallint
-		, suv_120d_sctr_dcl smallint
 	);
 
 alter table access_layer.return_attributes owner to postgres;

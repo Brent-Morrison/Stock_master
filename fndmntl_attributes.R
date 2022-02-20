@@ -1,5 +1,6 @@
+
+# ------------------------------------------------------------------------------------------------------------------------
 #### ADD A DATE OF LOAD COLUMN TO THE TABLE IN STOCK_MASTER ####
-#==============================================================================
 #
 # Script extracting SEC derived accounting data from the STOCK_MASTER database, 
 # constructing fundamental and valuation attributes.
@@ -26,20 +27,13 @@
 # KMB - return on equity
 # MA/QCOM - shares outstanding errors, TRIGGERING DIVISION RULES. ADD FILTER TO CHECK IF PRIOR MONTH VALUE CHANGED.
 #
-#==============================================================================
-
-start_time <- Sys.time()
-
-# Parameters
-end_date <- '2017-12-31'          # Latest date of available data (character string for SQL)
-lbmadj <- 0.01                    # Lower bound for market cap adjustment (NOT IN USE)
-ubmadj <- 20                      # Upper bound for market cap adjustment (NOT IN USE)
-ts_prior_months = 12              # Months prior to end_date to perform Theil Sen regression on (set to number of months in year)
-months_to_load = 12                # months prior to start date to load to DB (TO BE ADDED AS FILTER TO df_to_db)
-ts_iter = 50                      # Iterations for TS regression random seed starts
-write_to_db <- TRUE               # Boolean - write results to database
-ts_regr <- FALSE                  # Run Multivariate Thiel Sen regression from Python
-
+# DUPLICATES
+# Dupes are returned with the edgar.qrtly_fndmntl_ts_vw due to overlap of simfin and edgar data.  The query...
+# select * from (select ticker, report_date, count(*) over (partition by ticker, report_date) as n 
+# from edgar.qrtly_fndmntl_ts_vw) t1 where n > 1
+# ...identifies the following dupes ('ALXN','AMC','CACI','CRL','DYN','FDS','HZNP','IKBR','OA').  These are excluded manully
+#
+# ------------------------------------------------------------------------------------------------------------------------
 
 # Packages
 library(slider)
@@ -62,20 +56,36 @@ library(DBI)
 library(RPostgres)
 
 
+# Database connection
+config <- read_json('config.json')
+
+con <- dbConnect(
+  RPostgres::Postgres(),
+  host      = 'localhost',
+  port      = '5432',
+  dbname    = 'stock_master',
+  user      = 'postgres',
+  password  = config$pg_password
+)
 
 
-#==============================================================================
-#
-# DATABASE CONNECTION AND DATA RETRIEVAL
-#
-#==============================================================================
+# Parameters
+end_date <- '2021-12-31'          # Latest date of available data (character string for SQL)
+lbmadj <- 0.01                    # Lower bound for market cap adjustment (NOT IN USE)
+ubmadj <- 20                      # Upper bound for market cap adjustment (NOT IN USE)
+ts_prior_months = 12              # Months prior to end_date to perform Theil Sen regression on (set to number of months in year)
+months_to_load = 12               # months prior to start date to load to DB (TO BE ADDED AS FILTER TO df_to_db)
+ts_iter = 50                      # Iterations for TS regression random seed starts
+write_to_db <- FALSE               # Boolean - write results to database
+ts_regr <- TRUE                  # Boolean - run Multivariate Thiel Sen regression from Python
 
-# Source functions
-source("C:/Users/brent/Documents/VS_Code/postgres/postgres/return_attributes.R")
 
-# Connect to db
-con <- stock_master_connect()
+# Start
+start_time <- Sys.time()
 
+
+
+# DATA RETRIEVAL -----------------------------------------------------------------------------------------------------------
 
 # Parameters and query string, dates to be formatted as character string
 start_date <- paste(
@@ -88,42 +98,56 @@ start_date <- paste(
 valid_year <- as.character(year(end_date))
 
 # Read data and ensure correct ordering
-sql1 <- "select * from edgar.qrtly_fndmntl_ts_vw where date_available >= ?start_date and date_available <= ?end_date"
-sql1 <- sqlInterpolate(conn = con, sql = sql1, start_date = start_date, end_date = end_date)
-qry1 <- dbSendQuery(conn = con, statement = sql1) 
-qrtly_fndmntl_ts_raw <- dbFetch(qry1)
-qrtly_fndmntl_ts_raw <- arrange(qrtly_fndmntl_ts_raw, ticker, report_date)
+sql1 <- "select * from edgar.qrtly_fndmntl_ts_vw where date_available >= ?start_date and date_available <= ?end_date and ticker not in ('ALXN','AMC','CACI','CRL','DYN','FDS','HZNP','IKBR','OA')"
+sql1 <- DBI::sqlInterpolate(conn = con, sql = sql1, start_date = start_date, end_date = end_date)
+qry1 <- DBI::dbSendQuery(conn = con, statement = sql1) 
+qrtly_fndmntl_ts_raw <- DBI::dbFetch(qry1)
+qrtly_fndmntl_ts_raw <- dplyr::arrange(qrtly_fndmntl_ts_raw, ticker, report_date)
 
-sql2 <- "select * from alpha_vantage.monthly_price_ts_fn(valid_year_param => ?valid_year, nonfin_cutoff => 900, fin_cutoff => 100)"
-sql2 <- sqlInterpolate(conn = con, sql = sql2, valid_year = valid_year)
-#sql2 <- "select * from alpha_vantage.monthly_price_ts_vw where date_stamp >= ?start_date and date_stamp <= ?end_date"
-#sql2 <- sqlInterpolate(conn = con, sql = sql2, start_date = start_date, end_date = end_date)
-qry2 <- dbSendQuery(conn = con, statement = sql2) 
-monthly_price_ts_raw <- dbFetch(qry2)
+sql2 <- "select * from access_layer.monthly_price_ts_fn(valid_year_param_ => ?valid_year, nonfin_cutoff_ => 900, fin_cutoff_ => 100)"
+sql2 <- DBI::sqlInterpolate(conn = con, sql = sql2, valid_year = valid_year)
+qry2 <- DBI::dbSendQuery(conn = con, statement = sql2) 
+monthly_price_ts_raw <- DBI::dbFetch(qry2)
 names(monthly_price_ts_raw) <- gsub("_$", "", names(monthly_price_ts_raw))
 
-sql3 <- "select * from alpha_vantage.splits_vw where date_stamp >= ?start_date and date_stamp <= ?end_date"
-sql3 <- sqlInterpolate(conn = con, sql = sql3, start_date = start_date, end_date = end_date)
-qry3 <- dbSendQuery(conn = con, statement = sql3) 
-monthly_splits_raw <- dbFetch(qry3)
+sql3 <- "select * from access_layer.splits_vw where date_stamp >= ?start_date and date_stamp <= ?end_date"
+sql3 <- DBI::sqlInterpolate(conn = con, sql = sql3, start_date = start_date, end_date = end_date)
+qry3 <- DBI::dbSendQuery(conn = con, statement = sql3) 
+monthly_splits_raw <- DBI::dbFetch(qry3)
 
 
 
+# CHECK DUPLICATES ---------------------------------------------------------------------------------------------------------
+
+dupe_test1 <- qrtly_fndmntl_ts_raw %>%
+  dplyr::group_by(ticker, report_date) %>% 
+  dplyr::summarise(records = n()) %>% 
+  dplyr::filter(records > 1) 
+
+if(nrow(dupe_test1) > 0) {
+  stop(paste0('Duplicate records found in fundamental data for ticker: ', unique(unlist(dupe_test1[c("ticker")])),'. '))
+}
+
+dupe_test2 <- monthly_price_ts_raw %>%
+  dplyr::group_by(symbol, date_stamp) %>% 
+  dplyr::summarise(records = n()) %>% 
+  dplyr::filter(records > 1) 
+
+if(nrow(dupe_test2) > 0) {
+  stop(paste0('Duplicate records found in price data for ticker: ', unique(unlist(dupe_test2[c("symbol")])),'. '))
+}
 
 
-#==============================================================================
-# 
-# CHECK MISSINGNESS
+# CHECK MISSINGNESS --------------------------------------------------------------------------------------------------------
+
 # Missing defined as nil or NA cash, total assets, total equity, net income,
 # shares outstanding or non-continuous data (ie., missing quarter)
-#
-#==============================================================================
 
 # Stocks with missing data - includes indicator for missing qtr end (1 = non-consecutive qtrs)
 qrtly_fndmntl_excl <- qrtly_fndmntl_ts_raw %>% 
-  group_by(ticker) %>% 
-  mutate(
-    miss_qtr_ind = case_when(
+  dplyr::group_by(ticker) %>% 
+  dplyr::mutate(
+    miss_qtr_ind = dplyr::case_when(
       is.na(lag(fiscal_period)) ~ 1,
       fiscal_period == 'Q1' & lag(fiscal_period) == 'Q4' ~ 1,
       fiscal_period == 'Q2' & lag(fiscal_period) == 'Q1' ~ 1,
@@ -131,9 +155,9 @@ qrtly_fndmntl_excl <- qrtly_fndmntl_ts_raw %>%
       fiscal_period == 'Q4' & lag(fiscal_period) == 'Q3' ~ 1,
       TRUE ~ 0)
   ) %>% 
-  ungroup() %>% 
-  mutate(shares_os = pmax(shares_cso, shares_ecso, na.rm = TRUE)) %>% 
-  replace_with_na(replace = list(
+  dplyr::ungroup() %>% 
+  dplyr::mutate(shares_os = pmax(shares_cso, shares_ecso, na.rm = TRUE)) %>% 
+  naniar::replace_with_na(replace = list(
     cash_equiv_st_invest = c(0), 
     total_assets = c(0), 
     total_equity = c(0), 
@@ -142,12 +166,11 @@ qrtly_fndmntl_excl <- qrtly_fndmntl_ts_raw %>%
   ))
 
 
-# CHANGE BELOW PLOT SO THAT OBJECT IS RETURNED BY FUNCTION
 
-# Missingness plot 
+# Missing-ness plot 
 qrtly_fndmntl_excl %>% 
-  filter(year(report_date) == year(end_date)) %>% 
-  select(-date_available, -shares_cso, -shares_ecso) %>% 
+  dplyr::filter(year(report_date) == year(end_date)) %>% 
+  dplyr::select(-date_available, -shares_cso, -shares_ecso) %>% 
   vis_miss()
 
 
@@ -213,14 +236,11 @@ fnl_miss_qtr_chk <- qrtly_fndmntl_ts %>%
 
 
 
-#==============================================================================
-# 
-# CREATE ATTRIBUTES REQUIRING LAGGED QUARTERLY DATA
+# CREATE ATTRIBUTES REQUIRING LAGGED QUARTERLY DATA ------------------------------------------------------------------------
+
 # Analysis to be performed prior to expanding to monthly time series
 # Re ttm earning ex worst quarter 'ttm_earnings_max' - https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3443289
-#
-#==============================================================================
-  
+
 qrtly_fndmntl_ts <- qrtly_fndmntl_ts %>% 
   group_by(ticker) %>% 
   mutate(
@@ -673,11 +693,7 @@ datatable(
 
 
 
-#==============================================================================
-#
-# Write to postgres database & disconnect
-#
-#==============================================================================
+# Write to postgres database & disconnect ----------------------------------------------------------------------------------
 
 # Select columns to write to DB
 df_to_db <-  monthly_fndmntl_ts %>% 
@@ -685,14 +701,22 @@ df_to_db <-  monthly_fndmntl_ts %>%
   filter(date_stamp > as.Date(end_date) %m-% months(months_to_load)) %>% 
   arrange(date_stamp, ticker)
 
+if (write_to_db) {
+
+  # Clear existing data
+  sql4 <- "delete from access_layer.fundamental_attributes where extract(year from date_stamp) = ?valid_year_param"
+  sql4 <- sqlInterpolate(conn = con, sql = sql4, valid_year_param =valid_year)
+  qry4 <- dbSendQuery(conn = con, statement = sql4)
   
-if (write_to_db) dbWriteTable(
+  # Write to db
+  dbWriteTable(
   conn = con, 
   name = SQL('access_layer.fundamental_attributes'), 
   value = df_to_db, 
   row.names = FALSE, 
   append = TRUE
-)
+  )
+}
 
 
 # Disconnect

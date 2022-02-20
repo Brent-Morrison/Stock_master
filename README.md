@@ -122,3 +122,8 @@ The following is an inventory of functions used in maintaining the database.
     1. Merton for Dummies: A Flexible Way of Modelling Default Risk - [link](https://econpapers.repec.org/paper/utsrpaper/112.htm)
     2. In Search of Distress Risk - [link](https://scholar.harvard.edu/files/campbell/files/campbellhilscherszilagyi_jf2008.pdf)
 5. [LPPLS](https://github.com/Boulder-Investment-Technologies/lppls), see also - [link](https://youtu.be/6x4-GcIFDlM)
+
+
+## Useful development links
+1. [PostgreSQL Data Dictionary Query Toolbox](https://dataedo.com/kb/query/postgresql)
+2. Create data dictionary with [COMMENT ON](https://www.postgresql.org/docs/current/sql-comment.html) 
