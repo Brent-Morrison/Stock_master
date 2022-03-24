@@ -14,6 +14,7 @@ Data frame containing write status of tickers selected
 
 # Libraries
 import sys
+sys.path.insert(1, 'C:\\Users\\brent\\Documents\\VS_Code\\postgres\\postgres')  # to be replaced once package set up
 from functions import *
 import json
 
@@ -31,7 +32,7 @@ with open('C:\\Users\\brent\\Documents\\VS_Code\\postgres\\postgres\\config.json
 
 
 # Connect to db
-conn = pg_connect(password=config['pg_password'], database=database)
+conn = pg_connect(pg_password=config['pg_password'], database=database)
 
 
 # Convert to integer
@@ -46,6 +47,7 @@ elif test_data_bool_raw.lower() == 'f':
 
 # Convert date parameter from string to date, for use as data frame filter
 update_to_date = dt.datetime.strptime(update_to_date, '%Y-%m-%d').date()
+
 
 # IEX API token
 if test_data_bool:
@@ -163,14 +165,14 @@ for ticker in ticker_list:
         toc = time.perf_counter()
         log_item = [ticker[0], last_date_in_db, df_raw_last_date, len(df_raw), len(df), 'succesful_update', round(toc - tic, 2)]
         logging_list.append(log_item)
-        print('loop no.', iter_count,':', symbol, len(df_raw), 'records updated, ', round(toc - tic, 2), 'seconds')
+        print('loop no.', iter_count,':', symbol, len(df), 'records updated, ', round(toc - tic, 2), 'seconds')
         print('push no.', push_count)
     except:
         iter_count += 1
         toc = time.perf_counter()
-        log_item = [ticker[0], last_date_in_db, default_date, 0, 0, 'failed_push_to_db', round(toc - tic, 2)]
+        log_item = [ticker[0], last_date_in_db, default_date, len(df_raw), len(df), 'failed_push_to_db', round(toc - tic, 2)]
         logging_list.append(log_item)
-        print('loop no.', iter_count,':', symbol, 'failed - unable to push to db, ', round(toc - tic, 2), 'seconds')
+        print('loop no.', iter_count,':', symbol, len(df_raw), 'records retrieved, push to db failed, ', round(toc - tic, 2), 'seconds')
         continue
 
 
@@ -181,28 +183,4 @@ logging_df = pd.DataFrame(data=logging_list,
 logging_df['capture_date'] = dt.datetime.today().date()
 
 # Write to csv
-logging_df.to_csv('C:\\Users\\brent\\Documents\\VS_Code\\postgres\\postgres\\update_iex_price_log.csv')
-
-
-
-# TEST
-#conn = pg_connect('')
-#dummy_date0 = pd.read_sql(sql=text("""select * from test.shareprices_daily_test where symbol = 'YUM' and adjusted_close = 137.98"""),con=conn)
-#dummy_date1 = dummy_date0.values
-#db_date = dummy_date1[0][0]
-#df1 = get_iex_price('YUM', '3m', 'Tpk_0ba8bc52d3fc4dd38b57c06fcb515e57', sandbox=True)
-#df1 = get_iex_price('AAPL', '3m', 'pk_86b6d51533d847568f83db64c03a5d95', sandbox=False)
-#df2 = df1.copy()
-#df2['timestamp'] = pd.to_datetime(df2['timestamp'])
-#df2[df2['timestamp'].dt.month == 12]['dividend_amount'].mean()
-#df2[df2['timestamp'].dt.month == 12]['split_coefficient'].mean()
-#df3 = df1[(df1['timestamp'] > str('2021-12-28')) & (df1['timestamp'] <= str(update_to_date))]
-#df2.to_sql(name='shareprices_daily_test', con=conn, schema='test', index=False, if_exists='append', method='multi', chunksize=10000)
-#conn.execute("""truncate test.shareprices_daily_test""")
-#url = 'https://sandbox.iexapis.com/stable/stock/'+'ZOMsd'+'/chart/'+'3m'+'?token='+'Tpk_0ba8bc52d3fc4dd38b57c06fcb515e57'
-#url = 'https://cloud.iexapis.com/stable/stock/'+'PAGP'+'/chart/'+'3m'+'?token='+'pk_86b6d51533d847568f83db64c03a5d95'
-#resp = requests.get(url)
-#lst = resp.json()
-#df1 = pd.DataFrame(lst)
-#df1.to_csv('PAGP.CSV')
-#if resp.status_code != 200:
+logging_df.to_csv('C:\\Users\\brent\\Documents\\VS_Code\\postgres\\postgres\\airflow\\update_iex_price_log.csv')

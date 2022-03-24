@@ -7,20 +7,16 @@
 
 # Libraries
 from functions import *
+import json
 
-# Connect to postgres database
-conn = pg_connect('')
 
-# Libraries
-from sqlalchemy import create_engine, MetaData, Table, text
-import psycopg2
-import pandas as pd
-import numpy as np
-import datetime as dt
-import requests
-import os
-import io as io
-from zipfile import ZipFile
+# Load config file
+with open('C:\\Users\\brent\\Documents\\VS_Code\\postgres\\postgres\\config.json', 'r') as f:
+    config = json.load(f)
+
+
+# Connect to db
+conn = pg_connect(password=config['pg_password'], database='stock_master_test')
 
 
 # Create list of URL's for dates required
@@ -72,8 +68,9 @@ for url in url_list:
     # Set this manually for current url which has differing length
     qtr = url[66:72]
 
-    # Loop over text files in the downloaded zip file and read to individual 
-    # dataframes.  Exclude the readme & pre files.
+    # Loop over text files in the downloaded zip file and insert into a dictionary.
+    # Read from dictionary to individual dataframes. 
+    # Exclude the readme & pre files.
     zf_files_dict = {}
     for zfile in zf_files:
         if zfile.filename == 'readme.htm':
@@ -99,9 +96,13 @@ for url in url_list:
             finally:
                 pass
         
-        # Tag does not load properly, save locally using 'extractall()' in order to use (delimiter='\t|\n')
+        # The code block below applies only to the "tag" file (it is the only file remaining after 
+        # the conditions above are satisified.
+        # Tag does not load properly, therefore save locally using 'extractall()', this will allow the 
+        # use (delimiter='\t|\n') for correct extraction on data.
         else:
             zf_info_dict[zfile.filename+'_'+qtr] = len(zf.open(zfile.filename).readlines())-1
+            
             # Extract all members from the archive to the current working directory
             zf.extractall(members = ['tag.txt'])
             try:
@@ -118,10 +119,11 @@ for url in url_list:
                 print('{f}_{q} opened with utf-8 encoding'.format(f=zfile.filename, q=qtr))
 
             finally:
+                # Delete the temporary file
                 os.remove('tag.txt')
 
     # Extract to individual dataframes and unsure columns align to database
-    # table structure.  Add column (sec_qtr) indicating the zip file data originates from.
+    # table structure.  Add column (sec_qtr) indicating the zip file the data originates from.
     # We are only loading specific columns from the sub file.
     sub = zf_files_dict['sub.txt']
     sub_cols_to_drop = ['bas1','bas2','baph','countryma','stprma','cityma', 

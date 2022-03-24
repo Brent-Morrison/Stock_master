@@ -1,13 +1,13 @@
-from sqlalchemy import create_engine, text, types
+from sqlalchemy import create_engine, MetaData, text, types
 import psycopg2
 import pandas as pd
 import numpy as np
 import datetime as dt
 import requests
 import time
-import os
+#import os
 import io as io
-import sys
+#import sys
 from zipfile import ZipFile
 import yfinance as yf
 
@@ -17,12 +17,10 @@ import yfinance as yf
 
 # CONNECT TO DATABASE ------------------------------------------------------------------------------------------------------
 
-
-def pg_connect(pg_password):
+def pg_connect(pg_password, database):
     conn = None
     try:
-        engine = create_engine('postgresql://postgres:'+pg_password+
-                                '@localhost:5432/stock_master?gssencmode=disable')
+        engine = create_engine('postgresql://postgres:'+pg_password+'@localhost:5432/'+database+'?gssencmode=disable')
         
         # https://docs.sqlalchemy.org/en/13/core/connections.html#working-with-raw-dbapi-connections
         conn = engine.connect()
@@ -45,7 +43,6 @@ def pg_connect(pg_password):
 
 
 # GET ALPHAVANTAGE PRICE AND EPS DATA --------------------------------------------------------------------------------------
-
 
 def get_alphavantage(symbol, data, outputsize, apikey):
   
@@ -109,8 +106,7 @@ def get_alphavantage(symbol, data, outputsize, apikey):
 
 
 
-# GET ALPHAVANTAGE EPS DATA --------------------------------------------------------------------------------------
-
+# GET ALPHAVANTAGE EPS DATA ------------------------------------------------------------------------------------------------
 
 def get_av_eps(symbol, av_apikey):
   
@@ -162,8 +158,7 @@ def get_av_eps(symbol, av_apikey):
 
 
 
-# GET IEX PRICE DATA -----------------------------------------------------------------
-
+# GET IEX PRICE DATA -------------------------------------------------------------------------------------------------------
 
 def get_iex_price(symbol, outputsize, api_token, sandbox):
 
@@ -296,6 +291,7 @@ def copy_from_stringio(conn, df, table):
 
 
 # GRAB S&P 500 DATA --------------------------------------------------------------------------------------------------------
+
 update_to_date='2022-01-31'
 table_name='shareprices_daily'
 schema_name='access_layer'
@@ -374,7 +370,6 @@ def update_sp500_yf(conn, update_to_date, table_name, schema_name):
 
 
 # UPDATE ALPHA VANTAGE -----------------------------------------------------------------------------------------------------
-
 
 def update_av_data(apikey, conn, update_to_date, data='prices', wait_seconds=15, batch_size = 350):
   
@@ -578,6 +573,7 @@ def update_av_data(apikey, conn, update_to_date, data='prices', wait_seconds=15,
 
 # GRAB & UPDATE ACTIVE / DELISTED DATA -------------------------------------------------------------------------------------
 # get_udpdate_av_active_delisted
+
 def update_active_delisted(conn, apikey):
 
   """
@@ -623,7 +619,6 @@ def update_active_delisted(conn, apikey):
 
 
 # LOAD TICKER LIST FROM SEC WEBSITE ----------------------------------------------------------------------------------------
-
 
 def get_active_delisted(conn):
 

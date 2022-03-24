@@ -706,16 +706,78 @@ CREATE OR REPLACE VIEW access_layer.splits_vw AS
 	ORDER BY symbol, date_stamp;
 
 
-select count(*) from access_layer.fundamental_attributes where extract(year from date_stamp) = 2021
+select 
+ra.* 
+,fa.fin_nonfin
+,fa.report_date
+,fa.publish_date
+,fa.cash_equiv_st_invest
+,fa.total_cur_assets
+,fa.intang_asset
+,fa.total_noncur_assets
+,fa.total_assets
+,fa.st_debt
+,fa.total_cur_liab
+,fa.lt_debt
+,fa.total_noncur_liab
+,fa.total_liab
+,fa.total_equity
+,fa.net_income_qtly
+,fa.cash_ratio
+,fa.ttm_earnings
+,fa.ttm_earnings_max
+,fa.total_equity_cln
+,fa.asset_growth
+,fa.roa
+,fa.roe
+,fa.leverage
+,fa.other_ca_ratio
+,fa.sue
+,fa.intang_ratio
+,fa.shares_os
+,fa.mkt_cap
+,fa.book_price
+,fa.ttm_earn_yld
+,fa.ttm_earn_yld_max
+,fa.log_pb
+,fa.pbroe_rsdl_ols
+,fa.pbroe_rsq_ols
+,fa.pbroe_rsdl_ts
+,fa.fnmdl_rsdl_ts
+,fa.pbroe_rsdl_ols_rnk
+,fa.pbroe_rsdl_ts_rnk
+,fa.book_price_rnk
+,fa.ttm_earn_yld_rnk
+,fa.fnmdl_rsdl_ts_rnk
+,fa.pbroe_rsdl_ols_z
+,fa.pbroe_rsdl_ts_z
+,fa.book_price_z
+,fa.ttm_earn_yld_z
+,fa.fnmdl_rsdl_ts_z
+,fa.agg_valuation
+from access_layer.return_attributes ra 
+inner join access_layer.fundamental_attributes fa
+on ra.symbol = fa.ticker
+and ra.date_stamp = fa.date_stamp
+order by ra.symbol, ra.date_stamp
+
+
+select * from access_layer.fundamental_attributes where extract(year from date_stamp) = 2017 order by 3,1
 delete from access_layer.fundamental_attributes where extract(year from date_stamp) = 2021
 
 
 
+delete from iex.shareprices_daily where symbol in ('OPINL','AMTD')
+select * from access_layer.tickers_to_update_fn(valid_year_param => 2022, nonfin_cutoff => 950, fin_cutoff => 150)
 
-
-
-
-select symbol, max(date_stamp) from access_layer.shareprices_daily group by 1 order by 2
+select symbol, max(date_stamp) from iex.shareprices_daily group by 1 order by 2 desc, 1;
+select * from iex.shareprices_daily where date_stamp > '2022-02-28';
+select * from iex.shareprices_daily where symbol = 'AA' order by 1, 2 desc;
+select * from access_layer.shareprices_daily where symbol = 'GSPC' order by 2 desc --, 2 desc;
+select symbol, max(date_stamp), max(capture_date) from access_layer.shareprices_daily group by 1 order by 2 desc, 3, 1;
+select * from iex.shareprices_daily where date_stamp > '2022-01-31' and symbol = 'AAPL'--dividend_amount > 0
+select symbol, max(date_stamp) from access_layer.shareprices_daily group by 1 order by 2 desc;
+select * from access_layer.shareprices_daily where symbol= 'AMAT';
 select * from iex.shareprices_daily where date_stamp >'2021-11-30' and (dividend_amount != 0 or split_coefficient != 1)
 select * from edgar.qrtly_fndmntl_ts_vw where date_available >= '2017-12-31' and date_available <= '2021-12-31'
 
@@ -737,7 +799,7 @@ create unique index shareprices_daily_iex_idx on test.shareprices_daily_iex usin
 
 select * from access_layer.tickers_to_update_fn(valid_year_param => 2021, nonfin_cutoff => 950, fin_cutoff => 150)
 alter table test.shareprices_daily_iex drop column adjusted_close
-select * from test.shareprices_daily_iex
+select * from edgar.edgar_fndmntl_all_tb
 
 
 -- COMPLETENESS CHECK
@@ -773,53 +835,54 @@ where miss_ind = 1
 --where symbol = 'WSBCP'
 order by 1, 2 desc	
 
+select * from edgar.num_bad
+select * from edgar.qrtly_fndmntl_ts_vw
+
+
+CREATE OR REPLACE PROCEDURE test.psql_test_proc(sym text DEFAULT 'XOM'::text, start_date date DEFAULT '2021-12-31'::date, end_date date DEFAULT '2021-01-31'::date)
+ LANGUAGE plpgsql
+AS $procedure$
+
+declare
+ 	r				record;
+
+begin
+
+	-- loop over the newly added data
+	for r in
+		select 
+		symbol, 
+		max(date_stamp) 
+		from iex.shareprices_daily 
+		group by 1 
+		order by 1 desc 
+		limit 10
+		
+	loop
+		if length(r.symbol) > 4 then 
+
+			insert into test.test_table
+			values (r.symbol, 1, start_date, 99, 99, 9999, 1000);
+			
+		else
+			insert into test.test_table
+			values (concat(sym,r.symbol), 2, end_date, 99, 99, 9999, 2000);
+	
+		end if;
+	
+	end loop;
+	
+end;
+$procedure$
+;
 
 
 
 
-alter table access_layer.return_attributes rename to return_attributes_old
+select * from test.test_table
+truncate test.test_table
+select * from test.test_table where symbol = 'ZIONP'
 
-insert into access_layer.return_attributes 
-select
-symbol 
-, date_stamp
-, close
-, adjusted_close
-, volume 
-, rtn_log_1m 
-, amihud_1m 
-, amihud_60d 
-, amihud_vol_60d
-, vol_ari_20d 
-, vol_ari_60d 
-, vol_ari_120d 
-, skew_ari_120d 
-, kurt_ari_120d 
-, smax_20d 
-, cor_rtn_1d_mkt_120d 
-, beta_rtn_1d_mkt_120d 
-, rtn_ari_1m 
-, rtn_ari_3m 
-, rtn_ari_6m 
-, rtn_ari_12m 
-, ra.sector 
-, ind.industry::smallint
-, suv 
-, ipc
-from access_layer.return_attributes_old ra
-left join (
-		select distinct
-		ind.ticker 
-		,lk.lookup_val4 as sector
-		,lk.lookup_val5 as industry
-		,case -- see TO DO
-			when ind.sic::int between 6000 and 6500 then 'financial' 
-			else 'non_financial' end as fin_nonfin
-		from reference.ticker_cik_sic_ind ind  -- CREATES A DUPE RE ALXN, TWO RECORDS IN THIS TABLE AFTER DELIST	
-		left join reference.lookup lk
-		on ind.simfin_industry_id = lk.lookup_ref::int
-		and lk.lookup_table = 'simfin_industries' 
-		where lk.lookup_val4 != '13' -- ignore records with default industry
-) ind
-on ra.symbol = ind.ticker
-order by 1,2
+delete from test.test_table where volume = 9999
+
+call test.make_table_pr(sym => 'AAA', start_date => '2021-12-31', end_date => '2022-12-31');

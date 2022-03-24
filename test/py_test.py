@@ -53,6 +53,6 @@ lst = [sys.argv[1], sys.argv[2], sys.argv[3]]
 
 print(lst)
 
-with open('C:/Users/brent/Documents/VS_Code/postgres/postgres/test/sys.argv_py_test.csv', 'w') as f:
+with open('C:/Users/brent/Documents/VS_Code/postgres/postgres/test/py_test.csv', 'w') as f:
     write = csv.writer(f) 
     write.writerow(lst)

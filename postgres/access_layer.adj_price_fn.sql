@@ -1,10 +1,19 @@
 /******************************************************************************
 * 
 * CALCULATE ADJUSTED PRICE
+* Selects the price data set returned from the "access_layer.adj_price_union"
+* function encompassing new and existing data.
 * 
+* Calculates the adjusted close using the split and dividend adjusted
+* 1 day arithmetic return ingested with the "access_layer.adj_price_union"
+* function.
 * 
+* The result of this function is ingested into the "access_layer.insert_adj_price"
+* stored procedure.
 * 
 ******************************************************************************/
+
+select * from access_layer.adj_price_fn(sym => 'AAPL', start_date => '2022-02-01', end_date => '2022-02-28')
 
 drop function access_layer.adj_price_fn(text,date,date);
 

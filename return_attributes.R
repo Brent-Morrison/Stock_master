@@ -4,7 +4,7 @@
 stock_master_connect <- function() {
   
   if (!exists('con')) {
-    con <- dbConnect(
+    con <- DBI::dbConnect(
       RPostgres::Postgres(),
       host      = 'localhost',
       port      = '5432',

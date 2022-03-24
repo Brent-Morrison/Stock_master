@@ -14,8 +14,7 @@ begin
     for f in 
 		select 
 		symbol
-		,avg(split_coefficient) as split_ind
-		,sum(dividend_amount) as div_ind
+		,sum(split_coefficient)
 		from 
 			(
 			select 
@@ -25,7 +24,7 @@ begin
 			,dividend_amount
 			--from test.shareprices_daily_iex 	-- TEST
 			from iex.shareprices_daily 		-- PROD
-			where date_stamp between '2021-12-01' and '2022-01-31'
+			where date_stamp between '2022-02-01' and '2022-02-28'
 			
 			except 
 			
@@ -36,14 +35,14 @@ begin
 			,dividend_amount
 			--from test.shareprices_daily_acc 	-- TEST
 			from access_layer.shareprices_daily 		-- PROD
-			where date_stamp between '2021-12-01' and '2022-01-31'
+			where date_stamp between '2022-02-01' and '2022-02-28'
 			) t1
 		group by 1
 		order by 1
     loop 
 		
     	-- call insert function
-    	call access_layer.insert_adj_price(f.symbol, '2021-12-01', '2022-01-31');
+    	call access_layer.insert_adj_price(f.symbol, '2022-02-01', '2022-02-28');
 
     end loop;
 end;

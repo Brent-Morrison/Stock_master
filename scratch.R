@@ -112,7 +112,7 @@ df0$n <- as.numeric(df0$n)
 # Fill
 df0 <- tidyr::fill(df0, n, .direction = "up") %>% 
   filter(!is.na(n)) %>% 
-  mutate(data_source = 'Raw edgar data', size = if_else(is.na(n),0,1)) %>% 
+  mutate(data_source = 'd. Raw SEC data \n   (edgar.sub)', size = if_else(is.na(n),0,1)) %>% 
   select(date_stamp, data_source, size)
 
 
@@ -127,7 +127,7 @@ df1$n <- as.numeric(df1$n)
 # Fill
 df1 <- tidyr::fill(df1, n, .direction = "up") %>% 
   filter(!is.na(n)) %>% 
-  mutate(data_source = 'Transformed edgar data', size = if_else(is.na(n),0,1)) %>% 
+  mutate(data_source = 'e. Summarised SEC data\n   (edgar_fndmntl_all_tb)', size = if_else(is.na(n),0,1)) %>% 
   select(date_stamp, data_source, size)
 
 
@@ -139,7 +139,7 @@ df2 <- dplyr::left_join(
   mutate(n = as.numeric(n)) %>% 
   tidyr::fill(n, .direction = "up") %>% 
   filter(!is.na(n)) %>% 
-  mutate(data_source = 'Share prices', size = if_else(is.na(n),0,1)) %>% 
+  mutate(data_source = 'b. Share prices', size = if_else(is.na(n),0,1)) %>% 
   select(date_stamp, data_source, size)
 
 df3 <- dplyr::left_join(
@@ -150,7 +150,7 @@ df3 <- dplyr::left_join(
   mutate(n = as.numeric(n)) %>% 
   tidyr::fill(n, .direction = "up") %>% 
   filter(!is.na(n)) %>% 
-  mutate(data_source = 'S&P 500 data', size = if_else(is.na(n),0,1)) %>% 
+  mutate(data_source = 'a. S&P 500 data', size = if_else(is.na(n),0,1)) %>% 
   select(date_stamp, data_source, size)
 
 
@@ -158,20 +158,28 @@ df4 <- dplyr::left_join(x = date_seq, y = price_rtn_data4, by = 'date_stamp') %>
   mutate(n = as.numeric(n)) %>% 
   tidyr::fill(n, .direction = "up") %>% 
   filter(!is.na(n)) %>% 
-  mutate(data_source = 'Transformed price features', size = if_else(is.na(n),0,1)) %>% 
+  mutate(data_source = 'c. Transformed price features', size = if_else(is.na(n),0,1)) %>% 
   select(date_stamp, data_source, size)
 
 
+df5 <- dplyr::left_join(x = date_seq, y = fndmntl_ind_data5, by = 'date_stamp') %>% 
+  mutate(n = as.numeric(n)) %>% 
+  tidyr::fill(n, .direction = "up") %>% 
+  filter(!is.na(n)) %>% 
+  mutate(data_source = 'f. Transformed fundamentals\n   (fundamental_attributes)', size = if_else(is.na(n),0,1)) %>% 
+  select(date_stamp, data_source, size)
 
 # Union
 df <- bind_rows(df0, df1)
 df <- bind_rows(df, df2)
 df <- bind_rows(df, df3)
 df <- bind_rows(df, df4)
+df <- bind_rows(df, df5)
 
+#df$data_source <- factor(df$data_source, levels = order(unique(df$data_source)))
+#df$data_source <- factor(df$data_source, levels = unique(df$data_source))
 
-
-ggplot(df,aes(x = data_source, y = date_stamp)) + 
+ggplot(df,aes(x = reorder(data_source, desc(data_source)), y = date_stamp)) + 
   geom_point(
     shape = 22, #21 
     fill = "black", #"lightgray"
@@ -185,7 +193,13 @@ ggplot(df,aes(x = data_source, y = date_stamp)) +
     date_labels = "%b", 
     minor_breaks = NULL
     ) +
-  coord_flip() + labs(x = "", y = "")
+  coord_flip() +
+  labs(
+    x = "", y = "",
+    title = "Stock Master database status report",
+    caption = "Raw SEC data dates are the download file availability date"
+  ) +
+  theme(axis.text.y = element_text(hjust = 0)) 
 
 
 

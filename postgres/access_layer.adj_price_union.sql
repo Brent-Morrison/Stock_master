@@ -1,10 +1,22 @@
 /******************************************************************************
 * 
-* Union new and old price data
+* UNION NEW AND EXISTING PRICE DATA
+* Aggregate new price data. 
 * 
+* New data is that inserted into "iex.shareprices_daily", and is filtered 
+* with the start_date and end_date parameters.
 * 
+* Existing price data is selected from "access_layer.shareprices_daily" and 
+* is filtered pre the start_date parameter.
+* 
+* Calculate dividend and split adjusted 1 day arithmetic returns.
+* 
+* The result of this function is ingested into the "access_layer.adj_price_fn"
+* function
 * 
 ******************************************************************************/
+
+select * from access_layer.adj_price_union(sym => 'AAPL', start_date => '2022-02-01', end_date => '2022-02-28')
 
 drop function access_layer.adj_price_union(text, date, date);
 
@@ -56,7 +68,9 @@ from
 			from iex.shareprices_daily		-- PROD
 			where date_stamp between start_date and end_date
 			and symbol = sym
+			
 			union all 
+			
 			select
 			symbol
 			,date_stamp

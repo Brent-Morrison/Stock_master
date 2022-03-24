@@ -57,9 +57,9 @@ library(RPostgres)
 
 
 # Database connection
-config <- read_json('config.json')
+config <- jsonlite::read_json('config.json')
 
-con <- dbConnect(
+con <- DBI::dbConnect(
   RPostgres::Postgres(),
   host      = 'localhost',
   port      = '5432',

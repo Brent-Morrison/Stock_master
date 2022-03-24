@@ -3,8 +3,9 @@
 The "Stock Master" database collates fundamental and price data for US stocks.  
 
 Data is collected from:
-* the Securities and Exchange Commission ("SEC"), via the Financial Statement Data Sets made available by the [Economic and Risk Analysis Office](https://www.sec.gov/dera/data/financial-statement-data-sets.html), and
-* the [Alpha Vantage](https://www.alphavantage.co/) API
+* the Securities and Exchange Commission ("SEC"), via the Financial Statement Data Sets made available by the [Economic and Risk Analysis Office](https://www.sec.gov/dera/data/financial-statement-data-sets.html),
+* the [Alpha Vantage](https://www.alphavantage.co/) API, and
+* the [IEX cLOD](https://iexcloud.io/) API
 
 This repo contains Python, R and SQL scripts for interacting with the PostgreSQL database housing this data.
 
@@ -12,11 +13,25 @@ This repo contains Python, R and SQL scripts for interacting with the PostgreSQL
 
 ### Monthly
 
-1. Import price data with ```alphavantage_import.py```
-2. Import fundamental data with ```edgar_import.py```
-3. Transform the raw SEC data with the ```edgar.edgar_fndmntl_all_vw``` view, inserting the results into ```edgar.edgar_fndmntl_all_tb``` table
-4. Derive technical indicators from the price data and insert into  ```access_layer.return_attibutes``` table with the R script ```return_attibutes.R```
+1. Import S&P 500 index data with ```update_sp500_prices.py```
+2. Import individual stock price data with ```update_iex_prices.py```
+3. Refresh split and dividend adjusted historical prices with ```adj_price_insert.sql```
+4. Derive price data technical indicators and insert into ```access_layer.return_attibutes``` table with the R script ```return_attibutes.R```
+5. Import SEC fundamental data with ```edgar_import.py```
+6. Transform the raw SEC data with the ```edgar.edgar_fndmntl_all_vw``` view, inserting the results into ```edgar.edgar_fndmntl_all_tb``` table
 5. Derive financial ratios and valuation metrics from the fundamental data and insert into the  ```access_layer.fndmntl_attibutes``` table with the R script ```fndmntl_attibutes.R```
+
+## Airflow  
+[Airflow](https://airflow.apache.org/) is being used as an orchestrator to retrieve and process data as laid out above.  Airflow is Linux only and hence has been installed on Windows Subsystem for Linux ("WSL").  The PostgreSQL database, R and Python are installed on Windows.  Thus Airflow needs to traverse WSL and Windows, it does this calling Windows batch files via the Airflow Bash Operator.  Batch files in turn call the individual R and Python scripts operating on the data.  Airflow artifacts (except for the Python DAG file) reside in the ```airflow``` folder.
+
+Calling jobs with a two step process via batch files and in turn via bash commands is not the standard use case for Airflow.  This is quiet a long "chain of command" and passing parameters can be tricky.  However one benefit of this approach is ability to invoke scripts in specific environments.  Each batch file will utilise one of the following:  
+
+1. ```conda activate STOCK_MASTER && python```
+2. ```psql -U postgres```
+3. ```C:\Program Files\R\R-4.1.0\bin\Rscript.exe```
+
+Depending on whether Python, PostgeSQL or R is being used.
+
 
 ### New calendar year
 
@@ -83,6 +98,7 @@ The table below shows attributes codes and descriptions.
 
 Each of these attributes are discretised into deciles.  These deciles have ```_dcl``` appended.  Some attributes have also been assigned to deciles by industry group.  These are appended with ```_sctr_dcl```.  The first decile is the lowest value of the attribute in question.  Ordering has not been aligned to the consensus view of the attribute / factor effect. 
 
+
 ## Functions
 
 The following is an inventory of functions used in maintaining the database.
@@ -108,7 +124,7 @@ The following is an inventory of functions used in maintaining the database.
 | Load edgar ```pre.txt``` file in order to accurately capture balance sheet and income statement line items using the ```stmt``` field | TO DO |
 | Append the pre 2012 "universe" to the ```alpha_vantage.monthly_fwd_rtn``` table.  These are stocks that are not returned in the SEC edgar data, and are ranked by dollar volume for inclusion. | TO DO |
 | Get industry / sector data for stocks pre 2012 that are not returned in the SEC edgar data. | TO DO |
-| Size ranking uses a combination of total equity and total assets by financial and non-financial stocks.  Winsorise minimum of total equity at 5% of total assets.  This will negate the impact of negative equity stocks, when the negative equity is driven by buybacks.  see ticker MCD for example. | TO DO |
+| Size ranking uses a combination of total equity and total assets by financial and non-financial stocks.  Winsorise minimum of total equity at 5% of total assets.  This will negate the impact of negative equity stocks, when the negative equity is driven by buybacks.  See ticker MCD for example. | TO DO |
 
 
 ## Random ideas
