@@ -83,7 +83,7 @@ price_attributes <- function(
   
   # Check database connection exists
   if (!exists('con')) {
-    stop('No database connections')
+    stop('No database connection')
   }
   
   

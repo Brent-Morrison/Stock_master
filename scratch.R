@@ -196,7 +196,7 @@ ggplot(df,aes(x = reorder(data_source, desc(data_source)), y = date_stamp)) +
   coord_flip() +
   labs(
     x = "", y = "",
-    title = "Stock Master database status report",
+    title = paste('Stock Master database status report: ', Sys.time(), sep = " "),
     caption = "Raw SEC data dates are the download file availability date"
   ) +
   theme(axis.text.y = element_text(hjust = 0)) 
@@ -207,6 +207,11 @@ ggplot(df,aes(x = reorder(data_source, desc(data_source)), y = date_stamp)) +
 #  date_stamp = seq(from = start_date %m+% months(1), to = as.Date('2021-12-31') %m+% months(1), by = "month") - 1,
 #  data_source = rep('edgar_fundmntl_all',24)
 #)
+
+
+
+
+
 
 
 
