@@ -14,11 +14,13 @@ Data frame containing write status of tickers selected
 
 # Libraries
 import sys
-sys.path.insert(1, 'C:\\Users\\brent\\Documents\\VS_Code\\postgres\\postgres')  # to be replaced once package set up
+# In order to enable loading of a module, add location to $PYTHONPATH.  To be replaced once package set up
+# https://askubuntu.com/questions/470982/how-to-add-a-python-module-to-syspath
+sys.path.insert(1, 'C:\\Users\\brent\\Documents\\VS_Code\\postgres\\postgres') 
 from functions import *
 import json
 
-# Script parameters
+# Script parameters passed from Airflow
 database = sys.argv[1]              # 'stock_master_test'
 batch_size = sys.argv[2]            # 6 #
 update_to_date = sys.argv[3]        # '2022-02-04' #

@@ -16,8 +16,15 @@ with open('C:\\Users\\brent\\Documents\\VS_Code\\postgres\\postgres\\config.json
 
 
 # Connect to db
-conn = pg_connect(password=config['pg_password'], database='stock_master_test')
+conn = pg_connect(pg_password=config['pg_password'], database='stock_master_test')
 
+
+# Get last date in database
+edgar_sub_tbl = pd.read_sql(
+sql=text("""select 'sub' as table, sec_qtr, count(*) as n from edgar.sub group by 1,2 order by 2 desc, 1 asc""")
+,con=conn)
+
+last_qtr = edgar_sub_tbl.iloc[0,1]
 
 # Create list of URL's for dates required
 # Note that 2020 Q1 is under a different url
@@ -27,9 +34,9 @@ conn = pg_connect(password=config['pg_password'], database='stock_master_test')
 
 # Prior quarters
 start_year = 2021
-end_year = 2021
-start_qtr = 2
-end_qtr = 3
+end_year = 2022
+start_qtr = 1
+end_qtr = 4
 
 # Database write method (string: pandas OR stringio)
 db_write_method = 'pandas'
@@ -99,7 +106,7 @@ for url in url_list:
         # The code block below applies only to the "tag" file (it is the only file remaining after 
         # the conditions above are satisified.
         # Tag does not load properly, therefore save locally using 'extractall()', this will allow the 
-        # use (delimiter='\t|\n') for correct extraction on data.
+        # use (delimiter='\t|\n') for correct extraction of data.
         else:
             zf_info_dict[zfile.filename+'_'+qtr] = len(zf.open(zfile.filename).readlines())-1
             
@@ -164,7 +171,7 @@ for url in url_list:
         copy_from_stringio(conn=conn, df=num, table='edgar.num_stage')
 
     # Push to bad data and "final" tables
-    sql_file = open("edgar_push_stage_final.sql")
+    sql_file = open("C:\\Users\\brent\\Documents\\VS_Code\\postgres\\postgres\\edgar_push_stage_final.sql")
     text_sql = text(sql_file.read())
     conn.execute(text_sql)
     print('{} pushed to final tables'.format(qtr))
@@ -180,7 +187,7 @@ for url in url_list:
 
 # Save log file
 log = pd.DataFrame.from_dict(zf_info_dict, orient='index', columns=['line_count'])
-log.to_csv('log.csv')
+log.to_csv('C:\\Users\\brent\\Documents\\VS_Code\\postgres\\postgres\\log.csv')
 
 
 # Close connection

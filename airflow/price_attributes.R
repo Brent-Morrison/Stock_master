@@ -31,6 +31,7 @@ library(ggplot2)
 library(lubridate)
 library(DBI)
 library(RPostgres)
+library(jsonlite)
 
 
 
@@ -39,13 +40,12 @@ library(RPostgres)
 args <- commandArgs(trailingOnly = TRUE)
 
 #database <- 'stock_master'
-#update_to_date <- '2022-03-31'
-database <- args[1]        #'stock_master_test'
-update_to_date <- args[2]  #'2022-03-31'
+#update_to_date <- '2022-04-30'
+database <- args[1]        
+update_to_date <- args[2]  
 deciles = FALSE
 write_to_db = TRUE
 disconnect = TRUE 
-return_df = TRUE
 delete_existing = FALSE
 
 
@@ -54,7 +54,7 @@ delete_existing = FALSE
 
 # Database connection ------------------------------------------------------------------------------------------------------
 
-config <- read_json('C:/Users/brent/Documents/VS_Code/postgres/postgres/config.json')
+config <- jsonlite::read_json('C:/Users/brent/Documents/VS_Code/postgres/postgres/config.json')
 
 con <- dbConnect(
   RPostgres::Postgres(),
@@ -448,20 +448,12 @@ if (disconnect) {
 }
 
 
-# Return data frame logic
-if (return_df) {
-  data <- monthly
-} else {
-  data <- NULL
-}
-
-
 end_time <- Sys.time()
 
 execution_time <- end_time - start_time
 
 output_list <- list(
-  'upload_data' = data, 
+  'upload_data' = monthly, 
   'execution_time' = execution_time, 
   'missing_data' = bind_rows(daily_less_500, month_trade_days_excptn, monthly_na_records, invalid_sctr)
   )

@@ -1,4 +1,3 @@
-set database=stock_master_test
 set database=%1
 set start_date=%2
 set end_date=%3

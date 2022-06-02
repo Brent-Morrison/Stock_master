@@ -5,7 +5,7 @@ import numpy as np
 import datetime as dt
 import requests
 import time
-#import os
+import os
 import io as io
 #import sys
 from zipfile import ZipFile

@@ -364,11 +364,22 @@ alter table edgar.edgar_fndmntl_all_tb owner to postgres;
 -- Check status
 select sec_qtr, count(*) as n from edgar.edgar_fndmntl_all_tb group by 1 order by 1 desc
 
--- Insert (TO DO - do this via Airflow
+	with t1 as (select distinct sec_qtr from edgar.sub except select distinct sec_qtr from edgar.edgar_fndmntl_all_tb)
+	select * from edgar.edgar_fndmntl_all_vw where sec_qtr in (select sec_qtr from t1)
+
+-- Insert (TO DO - do this via Airflow by embedding in )
 insert into edgar.edgar_fndmntl_all_tb 
-	select * 
-	from edgar.edgar_fndmntl_all_vw
-	where sec_qtr in ('2021q2', '2021q3')  -- ADD LOGIC HERE TO GRAB ONLY DATA THAT IS IN RAW TABLES BUT NOT YET INSERTED VIA THIS PROCESS
+	with t1 as (
+		select distinct sec_qtr from edgar.sub except 
+		select distinct sec_qtr from edgar.edgar_fndmntl_all_tb
+		)
+	select * from edgar.edgar_fndmntl_all_vw 
+	where sec_qtr in (select sec_qtr from t1)
 ;
 
 select * from edgar.edgar_fndmntl_all_tb where cik in (815556,1459417,771497,1326801) order by 2,7,8;
+
+select distinct sec_qtr from edgar.sub except select distinct sec_qtr from edgar.edgar_fndmntl_all_tb
+
+
+select max(date_stamp) as date_stamp from access_layer.fundamental_attributes
