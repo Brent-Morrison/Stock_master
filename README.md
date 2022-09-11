@@ -5,7 +5,7 @@ The "Stock Master" database collates fundamental and price data for US stocks.
 Data is collected from:
 * the Securities and Exchange Commission ("SEC"), via the Financial Statement Data Sets made available by the [Economic and Risk Analysis Office](https://www.sec.gov/dera/data/financial-statement-data-sets.html),
 * the [Alpha Vantage](https://www.alphavantage.co/) API, and
-* the [IEX cLOD](https://iexcloud.io/) API
+* the [IEX Cloud](https://iexcloud.io/) API
 
 This repo contains Python, R and SQL scripts for interacting with the PostgreSQL database housing this data.
 

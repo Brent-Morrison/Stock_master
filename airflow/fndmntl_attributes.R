@@ -66,10 +66,10 @@ library(jsonlite)
 # External parameters
 args <- commandArgs(trailingOnly = TRUE)
 
-database <- 'stock_master'
-update_to_date <- '2022-05-31'
-#database <- args[1]        
-#update_to_date <- args[2]  
+#database <- 'stock_master'
+#update_to_date <- '2022-07-31'
+database <- args[1]        
+update_to_date <- args[2]  
 
 
 # Database connection

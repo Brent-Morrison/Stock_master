@@ -20,7 +20,7 @@
 --Test
 select * from edgar.qrtly_fndmntl_ts_vw where ticker in ('AAPL','ALXN','BGNE','EBIX','TUSK') order by 5,2 
 select * from (select ticker, report_date, count(*) over (partition by ticker, report_date) as n from edgar.qrtly_fndmntl_ts_vw) t1 where n > 1
-select * from edgar.qrtly_fndmntl_ts_vw where date_available >= '2016-09-01' and date_available <= '2018-12-31' and ticker not in ('ALXN','AMC','CACI','CRL','DYN','FDS','HZNP','IKBR','OA')
+select * from edgar.qrtly_fndmntl_ts_vw where date_available >= '2020-01-01' and date_available <= '2022-05-31' and ticker not in ('ALXN','AMC','CACI','CRL','DYN','FDS','HZNP','IKBR','OA')
 
 create or replace view edgar.qrtly_fndmntl_ts_vw as 
 

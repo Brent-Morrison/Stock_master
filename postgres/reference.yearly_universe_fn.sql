@@ -14,7 +14,7 @@
 ******************************************************************************/
 
 -- Test function
-select * from reference.yearly_universe_fn(nonfin_cutoff => 900, fin_cutoff => 150, valid_year_param => 2021) where symbol in ('AAPL','AGFC','ALXN','BGNE','EBIX','KOSN','TUSK')
+select * from reference.yearly_universe_fn(nonfin_cutoff => 900, fin_cutoff => 150, valid_year_param => 2022) where symbol in ('AAPL','AGFC','ALXN','BGNE','EBIX','KOSN','TUSK')
 
 drop function reference.yearly_universe_fn;
 
