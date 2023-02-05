@@ -40,7 +40,7 @@ library(jsonlite)
 args <- commandArgs(trailingOnly = TRUE)
 
 #database <- 'stock_master'
-#update_to_date <- '2022-04-30'
+#update_to_date <- '2022-12-31'
 database <- args[1]        
 update_to_date <- args[2]  
 deciles = FALSE
@@ -308,7 +308,7 @@ suv_df <- daily %>%
   # Drop potential NA's entering the regression
   drop_na(any_of(c('volume', 'pos', 'neg'))) %>% 
   slide_period_dfr(
-    .x =  .,
+    .x = .,
     .i = .$date_stamp,
     .period = "month",
     .f = suv_by_grp,

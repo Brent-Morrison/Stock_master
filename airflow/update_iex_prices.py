@@ -82,7 +82,7 @@ tickers['last_eps_date'] = tickers['last_eps_date'].fillna(default_date)
 
 
 # Filter data frame for those tickers not yet updated
-ticker_list = tickers[tickers['last_date_in_db'] < update_to_date]
+ticker_list = tickers[tickers['last_date_in_db'] <= update_to_date]
 
 
 # To numpy array

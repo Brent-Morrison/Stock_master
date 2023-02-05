@@ -13,6 +13,7 @@ order by relpages desc;
 
 -- Total disk space used by a database
 select pg_size_pretty(pg_database_size('stock_master'))
+select pg_size_pretty(pg_table_size('stock_master.edgar.num'))
 
 
 -- Free space
@@ -49,6 +50,29 @@ from pg_depend
 where refobjid = 'reference.ticker_cik_sic_ind'::regclass and deptype = 'n';
 
 
+select distinct n.nspname as schema_name, c.relname as view_name
+from pg_depend d
+join pg_rewrite w on w.oid = d.objid
+join pg_class c on c.oid = w.ev_class
+join pg_namespace n on n.oid = c.relnamespace
+where d.refclassid = 'pg_class'::regclass 
+and d.classid = 'pg_rewrite'::regclass
+and d.refobjid = 'reference.fundamental_universe'::regclass
+and c.oid <> 'reference.fundamental_universe'::regclass
+
+-- List tables used by a view ()
+select 
+u.view_schema as schema_name,
+u.view_name,
+u.table_schema as referenced_table_schema,
+u.table_name as referenced_table_name,
+v.view_definition
+from information_schema.view_table_usage u
+join information_schema.views v 
+on u.view_schema = v.table_schema
+and u.view_name = v.table_name
+where u.table_schema not in ('information_schema', 'pg_catalog')
+order by 1,2;
 
 
 /***************************************************************************************************************************
@@ -105,12 +129,12 @@ where symbol not in (select ticker from alpha_vantage.ticker_excl) and last_date
 
 -- Last S&P 500 date
 select max(timestamp) from alpha_vantage.shareprices_daily where symbol = 'GSPC'
-
+alpha_vantage
 -- Active_delisted
 select * from alpha_vantage.active_delisted
 
 -- Return attributes status
-select date_stamp, count(*) as n from access_layer.return_attributes group by 1 order by 1 desc
+select date_stamp, count(*) as n from access_layer.return_attributes where date_stamp > current_date - interval '3 years' group by 1 order by 1 desc
 
 -- S&P 500 data status
 select max(timestamp) from alpha_vantage.shareprices_daily where symbol = 'GSPC'
@@ -123,7 +147,7 @@ select * from edgar.num
 select * from (
 select 'num' as table, sec_qtr, count(*) as n from edgar.num group by 1,2
 --union all 
---select 'pre' as table, sec_qtr, count(*) as n from edgar.pre group by 1,2
+select 'pre' as table, sec_qtr, count(*) as n from edgar.pre group by 1,2
 union all 
 select 'sub' as table, sec_qtr, count(*) as n from edgar.sub group by 1,2
 union all 
@@ -143,7 +167,7 @@ select symbol, max("timestamp") as max_date from alpha_vantage.shareprices_daily
 
 select * from access_layer.return_attributes where date_stamp between '2018-01-31' and '2020-12-31' order by 1, 2;
 
-select * from edgar.edgar_fndmntl_fltr_fn(nonfin_cutoff => 1350, fin_cutoff => 150 ,qrtr => '%q3', bad_data_fltr => false)
+select * from edgar.edgar_fndmntl_fltr_fn(nonfin_cutoff => 1350, fin_cutoff => 150, qrtr => '%q3', bad_data_fltr => false)
 
 select * from test.shareprices_daily_test where "timestamp" = '2021-10-29' and symbol = 'YUM' and adjusted_close = 137.98
 select * from alpha_vantage.shareprices_daily where symbol = 'XOM' order by "timestamp"
@@ -218,12 +242,12 @@ where dupes > 1
 
 -- REMOVE DUPLICATES
 delete
-from edgar.company_tickers t1
-using edgar.company_tickers t2
+from access_layer.fundamental_attributes t1
+using access_layer.fundamental_attributes t2
 where t1.ctid < t2.ctid
-and t1.cik_str = t2.cik_str
+--and t1.cik_str = t2.cik_str
 and t1.ticker = t2.ticker
-and t1.title = t2.title
+and t1.date_stamp = t2.date_stamp
 
 
 
@@ -480,7 +504,9 @@ select count(*) from alpha_vantage.shareprices_daily where symbol = 'AAT' and "t
 
 select * from reference.fundamental_universe where cik = 1144980
 select * from reference.ticker_cik_sic_ind where cik = 1500217
-select * from edgar.edgar_fndmntl_all_tb where cik = 1750 --(shares_cso > 0 and shares_cso < 10) and (shares_ecso > 0 and shares_ecso < 10)
+select * from edgar.edgar_fndmntl_all_tb where stock like '%APPLE INC%' --(shares_cso > 0 and shares_cso < 10) and (shares_ecso > 0 and shares_ecso < 10)
+select * from edgar.qrtly_fndmntl_ts_vw where ticker = 'AAPL'
+select * from edgar.qrtly_fndmntl_ts_vw where date_available >= '2021-12-01' and date_available <= '2022-03-31' and ticker = 'AAPL'
 
 select * from alpha_vantage.tickers_to_update where symbol not in (select ticker from alpha_vantage.ticker_excl)
 delete from alpha_vantage.ticker_excl where status = 'failed_no_data'
@@ -553,11 +579,11 @@ select * from alpha_vantage.daily_price_ts_vw where date_stamp >= '2019-01-01' a
 select max(date_stamp) as max_date from access_layer.return_attributes where fwd_rtn_1m is null group by 1
 select date_stamp, count(*) from access_layer.return_attributes group by 1
 
-select * from alpha_vantage.earnings where symbol = 'ARW' and date_stamp = '2020-11-23'
-select symbol, count(*) as records from alpha_vantage.earnings group by 1 order by 1
+select * from alpha_vantage.earnings where symbol = 'AAPL'
+select symbol, count(*) as records, max(date_stamp) from alpha_vantage.earnings group by 1 order by 1
 
-select * from access_layer.return_attributes 
-
+select * from access_layer.return_attributes WHERE symbol = 'AAPL'
+select max(date_stamp) from access_layer.return_attributes
 SELECT distinct tag FROM edgar.pre where stmt = 'IS'
 select distinct sec_qtr from edgar.pre
 
@@ -608,7 +634,8 @@ order by 1,2,3,4,5
 
 select date_available, count(*) from edgar.qrtly_fndmntl_ts_vw group by 1 order by 1 --where ticker ='AAPL'
 
-select date_stamp, count(*) from access_layer.fundamental_attributes group by 1 order by 1
+select ticker, count(*) as n from access_layer.fundamental_attributes where date_stamp = '2022-05-31' group by 1 order by 1 
+select * from access_layer.fundamental_attributes where date_stamp = '2022-05-31' order by ticker, total_cur_assets 
 select date_stamp, count(*) from access_layer.return_attributes group by 1 order by 1
 select * from alpha_vantage.monthly_price_ts_vw where date_stamp >= '2018-09-01' and date_stamp <= '2020-12-31' group by 1 order by 1
 select date_stamp, count(*) from alpha_vantage.daily_price_ts_vw group by 1 order by 1
@@ -675,133 +702,6 @@ order by 2,5
 
 
 
-
-
-
-
-select * from access_layer.daily_sp500_ts_vw where extract(year from date_stamp) = 2021
-
-CREATE OR REPLACE VIEW access_layer.daily_sp500_ts_vw AS 
-SELECT 
-date_stamp,
-symbol,
-close,
-adjusted_close,
-volume
-FROM access_layer.shareprices_daily
-WHERE symbol = 'GSPC'::text;
-
-
-
-
-
-CREATE OR REPLACE VIEW access_layer.splits_vw AS 
-	SELECT 
-	symbol,
-	date_stamp,
-	(date_trunc('month'::text, date_stamp::timestamp with time zone) + '1 mon'::interval)::date - 1 AS me_date,
-	split_coefficient AS split_coef
-	FROM access_layer.shareprices_daily
-	WHERE split_coefficient <> 1::numeric AND symbol <> 'GSPC'::text
-	ORDER BY symbol, date_stamp;
-
-
-select 
-ra.* 
-,fa.fin_nonfin
-,fa.report_date
-,fa.publish_date
-,fa.cash_equiv_st_invest
-,fa.total_cur_assets
-,fa.intang_asset
-,fa.total_noncur_assets
-,fa.total_assets
-,fa.st_debt
-,fa.total_cur_liab
-,fa.lt_debt
-,fa.total_noncur_liab
-,fa.total_liab
-,fa.total_equity
-,fa.net_income_qtly
-,fa.cash_ratio
-,fa.ttm_earnings
-,fa.ttm_earnings_max
-,fa.total_equity_cln
-,fa.asset_growth
-,fa.roa
-,fa.roe
-,fa.leverage
-,fa.other_ca_ratio
-,fa.sue
-,fa.intang_ratio
-,fa.shares_os
-,fa.mkt_cap
-,fa.book_price
-,fa.ttm_earn_yld
-,fa.ttm_earn_yld_max
-,fa.log_pb
-,fa.pbroe_rsdl_ols
-,fa.pbroe_rsq_ols
-,fa.pbroe_rsdl_ts
-,fa.fnmdl_rsdl_ts
-,fa.pbroe_rsdl_ols_rnk
-,fa.pbroe_rsdl_ts_rnk
-,fa.book_price_rnk
-,fa.ttm_earn_yld_rnk
-,fa.fnmdl_rsdl_ts_rnk
-,fa.pbroe_rsdl_ols_z
-,fa.pbroe_rsdl_ts_z
-,fa.book_price_z
-,fa.ttm_earn_yld_z
-,fa.fnmdl_rsdl_ts_z
-,fa.agg_valuation
-from access_layer.return_attributes ra 
-inner join access_layer.fundamental_attributes fa
-on ra.symbol = fa.ticker
-and ra.date_stamp = fa.date_stamp
-order by ra.symbol, ra.date_stamp
-
-
-select * from access_layer.fundamental_attributes where extract(year from date_stamp) = 2017 order by 3,1
-delete from access_layer.fundamental_attributes where extract(year from date_stamp) = 2021
-
-
-
-delete from iex.shareprices_daily where symbol in ('OPINL','AMTD')
-select * from access_layer.tickers_to_update_fn(valid_year_param => 2022, nonfin_cutoff => 950, fin_cutoff => 150)
-
-select symbol, max(date_stamp) from iex.shareprices_daily group by 1 order by 2 desc, 1;
-select * from iex.shareprices_daily where date_stamp > '2022-02-28';
-select * from iex.shareprices_daily where symbol = 'AA' order by 1, 2 desc;
-select * from access_layer.shareprices_daily where symbol = 'GSPC' order by 2 desc --, 2 desc;
-select symbol, max(date_stamp), max(capture_date) from access_layer.shareprices_daily group by 1 order by 2 desc, 3, 1;
-select * from iex.shareprices_daily where date_stamp > '2022-01-31' and symbol = 'AAPL'--dividend_amount > 0
-select symbol, max(date_stamp) from access_layer.shareprices_daily group by 1 order by 2 desc;
-select * from access_layer.shareprices_daily where symbol= 'AMAT';
-select * from iex.shareprices_daily where date_stamp >'2021-11-30' and (dividend_amount != 0 or split_coefficient != 1)
-select * from edgar.qrtly_fndmntl_ts_vw where date_available >= '2017-12-31' and date_available <= '2021-12-31'
-
-create table test.shareprices_daily_iex (
-	symbol text,
-	date_stamp date,
-	"open" numeric,
-	high numeric,
-	low numeric,
-	"close" numeric,
-	volume numeric,
-	dividend_amount numeric,
-	split_coefficient numeric,
-	capture_date date,
-	data_source varchar(5)
-);
-create unique index shareprices_daily_iex_idx on test.shareprices_daily_iex using btree (symbol, date_stamp);
-
-
-select * from access_layer.tickers_to_update_fn(valid_year_param => 2021, nonfin_cutoff => 950, fin_cutoff => 150)
-alter table test.shareprices_daily_iex drop column adjusted_close
-select * from edgar.edgar_fndmntl_all_tb
-
-
 -- COMPLETENESS CHECK
 select * from (
 	select 
@@ -835,54 +735,31 @@ where miss_ind = 1
 --where symbol = 'WSBCP'
 order by 1, 2 desc	
 
-select * from edgar.num_bad
-select * from edgar.qrtly_fndmntl_ts_vw
 
 
-CREATE OR REPLACE PROCEDURE test.psql_test_proc(sym text DEFAULT 'XOM'::text, start_date date DEFAULT '2021-12-31'::date, end_date date DEFAULT '2021-01-31'::date)
- LANGUAGE plpgsql
-AS $procedure$
 
-declare
- 	r				record;
+select * from edgar.qrtly_fndmntl_ts_fn(valid_year_param_ => 2022, nonfin_cutoff_ => 925, fin_cutoff_ => 125) where ticker_ in ('ABG','AYI')
 
-begin
-
-	-- loop over the newly added data
-	for r in
-		select 
-		symbol, 
-		max(date_stamp) 
-		from iex.shareprices_daily 
-		group by 1 
-		order by 1 desc 
-		limit 10
-		
-	loop
-		if length(r.symbol) > 4 then 
-
-			insert into test.test_table
-			values (r.symbol, 1, start_date, 99, 99, 9999, 1000);
-			
-		else
-			insert into test.test_table
-			values (concat(sym,r.symbol), 2, end_date, 99, 99, 9999, 2000);
-	
-		end if;
-	
-	end loop;
-	
-end;
-$procedure$
-;
+select * from access_layer.tickers_to_update_fn(valid_year_param => 2022, nonfin_cutoff => 950, fin_cutoff => 150)
 
 
 
 
-select * from test.test_table
-truncate test.test_table
-select * from test.test_table where symbol = 'ZIONP'
 
-delete from test.test_table where volume = 9999
 
-call test.make_table_pr(sym => 'AAA', start_date => '2021-12-31', end_date => '2022-12-31');
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

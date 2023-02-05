@@ -11,17 +11,7 @@ This repo contains Python, R and SQL scripts for interacting with the PostgreSQL
 
 ## Update procedures
 
-### Monthly
-
-1. Import S&P 500 index data with ```update_sp500_prices.py```
-2. Import individual stock price data with ```update_iex_prices.py```
-3. Refresh split and dividend adjusted historical prices with ```adj_price_insert.sql```
-4. Derive price data technical indicators and insert into ```access_layer.return_attibutes``` table with the R script ```return_attibutes.R```
-5. Import SEC fundamental data with ```edgar_import.py```
-6. Transform the raw SEC data with the ```edgar.edgar_fndmntl_all_vw``` view, inserting the results into ```edgar.edgar_fndmntl_all_tb``` table
-5. Derive financial ratios and valuation metrics from the fundamental data and insert into the  ```access_layer.fndmntl_attibutes``` table with the R script ```fndmntl_attibutes.R```
-
-## Airflow  
+### Airflow  
 [Airflow](https://airflow.apache.org/) is being used as an orchestrator to retrieve and process data as laid out above.  Airflow is Linux only and hence has been installed on Windows Subsystem for Linux ("WSL").  The PostgreSQL database, R and Python are installed on Windows.  Thus Airflow needs to traverse WSL and Windows, it does this calling Windows batch files via the Airflow Bash Operator.  Batch files in turn call the individual R and Python scripts operating on the data.  Airflow artifacts (except for the Python DAG file) reside in the ```airflow``` folder.
 
 Calling jobs with a two step process via batch files and in turn via bash commands is not the standard use case for Airflow.  This is quiet a long "chain of command" and passing parameters can be tricky.  However one benefit of this approach is ability to invoke scripts in specific environments.  Each batch file will utilise one of the following:  
@@ -30,16 +20,56 @@ Calling jobs with a two step process via batch files and in turn via bash comman
 2. ```psql -U postgres```
 3. ```C:\Program Files\R\R-4.1.0\bin\Rscript.exe```
 
-Depending on whether Python, PostgeSQL or R is being used.
+depending on whether Python, PostgeSQL or R is being used.  
 
+All scripts called by Airflow are in the [airflow](https://github.com/Brent-Morrison/Stock_master/tree/master/airflow) folder.
 
-### New calendar year
+### Monthly procedures  
+The Airflow DAG executed to re-fresh the database is shown below.  
 
-In addition to monthly data collection, the "universe" of stocks for which analysis is performed requires updating.  The universe of stocks is determined with reference to fundamental data as of Q3 of the preceding year.  The following steps are required prior to updating data in a new calendar year:
-* Update the ```reference.fundamental_universe``` table with data derived from the function ```edgar.edgar_fndmntl_fltr_fn``` function, parameterised as appropriate.  
+```mermaid
+    flowchart LR
+        A(update_iex_prices.py<sup>1</sup>) --> B(adj_price_insert_sc.sql<sup>2</sup>)
+        B --> C(price_attributes.R<sup>4</sup>)
+        D(update_sp500_prices.py<sup>3</sup>) --> C
+        C --> E(update_sec_edgar.py<sup>5</sup>)
+        E --> F(fndmntl_attributes.py<sup>6</sup>)
+```
 
-## Date reporting conventions
+<sup>1</sup> Python script.  Retrieve data from the IEX server and write to the `iex.shareprices_daily` table  
+<sup>2</sup> PL/pgSQL script.  Adjust prices for dividends and splits and insert into `access_layer.shareprices_daily`. See below.  
+<sup>3</sup> Python script.  Retrieve index data from Yahoo Finance and write to the `iex.shareprices_daily` table.  
+<sup>4</sup> R script.  Create features derived from stock prices and insert into `access_layer.return_attributes`.  
+<sup>5</sup> Python script.  Retrieve data from the [SEC Edgar database](https://www.sec.gov/dera/data/financial-statement-data-sets.html) and inset into `edgar_fndmntl_all_tb`.  See below.  
+<sup>6</sup> R script.  Create features derived fundamental data (SEC) and insert into `access_layer.fundamental_attributes`.  
 
+Select stocks that are in the `iex.shareprices_daily` and not in `access_layer.shareprices_daily` (ie., not yet updated) and loop over calling `insert_adj_price`   
+
+### Updating stock prices  
+The script retrieving stock prices, `update_iex_prices.py` depends on the following objects:
+<br>
+```mermaid
+    flowchart TD
+        A[[fundamental_universe<sup>1</sup>]] --> C(tickers_to_update_fn<sup>3</sup>)
+        B[[ticker_cik_sic_ind<sup>2</sup>]] --> C
+        C --> D(update_iex_prices.py)
+```
+
+<sup>1</sup> Reference table, `reference.fundamental_universe` listing stocks by Central Index Key ("CIK") and year, detailing total assets and total book equity per stock / year.  
+<sup>2</sup> Reference table, `reference.ticker_cik_sic_ind` listing stocks by CIK, ticker, name, Standard Industrial Classification ("SIC") code and delist date  
+<sup>3</sup> This function returns a list of tickers and the last update date for both price and earnings data.   
+
+### Adjusting for dividends & splits  
+To do. Outline functionality of `adj_price_insert_sc.sql` >> `insert_adj_price` >> `adj_price_union`.
+
+### New calendar year  
+In addition to monthly data collection, the "universe" of stocks for which analysis is performed requires updating on an annual basis.  The universe of stocks is determined with reference to fundamental data as of Q3 of the preceding year.  The following steps are required prior to updating price data in a new calendar year:  
+1. Update the table `edgar.company_tickers` with CIK and ticker data using the python function `get_active_delisted`.  
+2. Update the table `alpha_vantage.active_delisted` with IPO and delist date data usng the python function `update_active_delisted`. 
+3. Update the table `reference.ticker_cik_sic_ind` using the custom query and logic in the excel file `cik_fndmntl_univ.xlsx`.
+3. Update the `reference.fundamental_universe` table with data derived from the function `edgar.edgar_fndmntl_fltr_fn` and logic in the excel file `cik_fndmntl_univ.xlsx`.  
+
+## Date reporting conventions  
 The date at which data is available for modeling often differs to the release date, and in the case of financial statement information, the fiscal period to which it relates.  This necessitates careful tracking of a number of different dates.  Date reporting conventions are as follows.  
 
 ##### Report date

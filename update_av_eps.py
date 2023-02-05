@@ -17,23 +17,23 @@ with open('config.json', 'r') as f:
     config = json.load(f)
 
 # Connect to db
-conn = pg_connect(config['pg_password'])
+conn = pg_connect(config['pg_password'], 'stock_master')
 
 apikey=config['av_apikey']
-update_to_date=sys.argv[2]
-batch_size=sys.argv[3]
+update_to_date='2022-10-31'#sys.argv[2]
+batch_size=10#sys.argv[3]
 wait_seconds=15
 
 
 # Grab tickers from database, this is the population
 # for which data will be pulled
 tickers = pd.read_sql(
-sql=text("""
-    select * from alpha_vantage.tickers_to_update
-    where symbol not in (select ticker from alpha_vantage.ticker_excl) and symbol in ('AAPL', 'AAN')
-""")
-,con=conn
-)
+    sql=text("""
+        select * from alpha_vantage.tickers_to_update
+        where symbol not in (select ticker from alpha_vantage.ticker_excl) and symbol in ('AAPL', 'AAN')
+    """)
+    ,con=conn
+    )
 
 # Convert date parameter from string to date
 # To be used as data frame filter
@@ -81,7 +81,7 @@ for ticker in ticker_list:
     try:
         df_raw = get_av_eps(
             symbol=symbol, 
-            apikey=apikey
+            av_apikey=apikey
             )
         time.sleep(wait_seconds)
 
