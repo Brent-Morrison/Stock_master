@@ -620,7 +620,7 @@ def update_active_delisted(conn, apikey):
 
 # LOAD TICKER LIST FROM SEC WEBSITE ----------------------------------------------------------------------------------------
 
-def get_active_delisted(conn):
+def update_sec_company_tickers(conn):
 
   # Grab data from SEC website
   df = pd.read_json('https://www.sec.gov/files/company_tickers.json', orient='index')

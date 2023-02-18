@@ -24,48 +24,55 @@ depending on whether Python, PostgeSQL or R is being used.
 
 All scripts called by Airflow are in the [airflow](https://github.com/Brent-Morrison/Stock_master/tree/master/airflow) folder.
 
-### Monthly procedures  
+
+### Monthly procedures - selecting stocks to retrieve   
+The universe of stocks for which price data is to be retrieved is detemined with respect to stock size (assets and equity).  The diagram below shows the objects used in this assessment: 
+<br>
+```mermaid
+    flowchart TD
+        A[[fundamental_universe <sup>1</sup>]] --> C(tickers_to_update_fn <sup>3</sup>)
+        B[[ticker_cik_sic_ind <sup>2</sup>]] --> C
+        C --> D(update_iex_prices.py)
+```
+
+<sup>1</sup> Reference table, `reference.fundamental_universe` listing stocks by Central Index Key ("CIK") and year, detailing total assets and total book equity per stock / year.  
+<sup>2</sup> Reference table, `reference.ticker_cik_sic_ind` listing stocks by CIK, ticker, name, Standard Industrial Classification ("SIC") code and delist date  
+<sup>3</sup> This function returns a list of tickers with the last update date for both price and earnings data. 
+
+The script `update_iex_prices.py` is used to retrieve price data.  The seeding of tables 1 and 2 above is detailed below.
+
+
+### Monthly procedures - data retrieval  
 The Airflow DAG executed to re-fresh the database is shown below.  
 
 ```mermaid
-    flowchart LR
-        A(update_iex_prices.py<sup>1</sup>) --> B(adj_price_insert_sc.sql<sup>2</sup>)
-        B --> C(price_attributes.R<sup>4</sup>)
-        D(update_sp500_prices.py<sup>3</sup>) --> C
-        C --> E(update_sec_edgar.py<sup>5</sup>)
-        E --> F(fndmntl_attributes.py<sup>6</sup>)
+    flowchart TD
+        A(update_iex_prices.py <sup>1</sup>) --> B(adj_price_insert_sc.sql <sup>2</sup>)
+        B --> C(price_attributes.R <sup>4</sup>)
+        D(update_sp500_prices.py <sup>3</sup>) --> C
+        C --> E(update_sec_edgar.py <sup>5</sup>)
+        E --> F(fndmntl_attributes.py <sup>6</sup>)
 ```
+
 
 <sup>1</sup> Python script.  Retrieve data from the IEX server and write to the `iex.shareprices_daily` table  
 <sup>2</sup> PL/pgSQL script.  Adjust prices for dividends and splits and insert into `access_layer.shareprices_daily`. See below.  
 <sup>3</sup> Python script.  Retrieve index data from Yahoo Finance and write to the `iex.shareprices_daily` table.  
 <sup>4</sup> R script.  Create features derived from stock prices and insert into `access_layer.return_attributes`.  
 <sup>5</sup> Python script.  Retrieve data from the [SEC Edgar database](https://www.sec.gov/dera/data/financial-statement-data-sets.html) and inset into `edgar_fndmntl_all_tb`.  See below.  
-<sup>6</sup> R script.  Create features derived fundamental data (SEC) and insert into `access_layer.fundamental_attributes`.  
+<sup>6</sup> R script.  Create features derived from fundamental (and price) data, and insert into `access_layer.fundamental_attributes`.  
 
-Select stocks that are in the `iex.shareprices_daily` and not in `access_layer.shareprices_daily` (ie., not yet updated) and loop over calling `insert_adj_price`   
-
-### Updating stock prices  
-The script retrieving stock prices, `update_iex_prices.py` depends on the following objects:
-<br>
-```mermaid
-    flowchart TD
-        A[[fundamental_universe<sup>1</sup>]] --> C(tickers_to_update_fn<sup>3</sup>)
-        B[[ticker_cik_sic_ind<sup>2</sup>]] --> C
-        C --> D(update_iex_prices.py)
-```
-
-<sup>1</sup> Reference table, `reference.fundamental_universe` listing stocks by Central Index Key ("CIK") and year, detailing total assets and total book equity per stock / year.  
-<sup>2</sup> Reference table, `reference.ticker_cik_sic_ind` listing stocks by CIK, ticker, name, Standard Industrial Classification ("SIC") code and delist date  
-<sup>3</sup> This function returns a list of tickers and the last update date for both price and earnings data.   
 
 ### Adjusting for dividends & splits  
-To do. Outline functionality of `adj_price_insert_sc.sql` >> `insert_adj_price` >> `adj_price_union`.
+WIP.  
+
+Outline functionality of `adj_price_insert_sc.sql` >> `insert_adj_price` >> `adj_price_union`.  Note script is selecting stocks that are in the `iex.shareprices_daily` and not in `access_layer.shareprices_daily` (ie., not yet updated) and loop over calling `insert_adj_price`  
+
 
 ### New calendar year  
 In addition to monthly data collection, the "universe" of stocks for which analysis is performed requires updating on an annual basis.  The universe of stocks is determined with reference to fundamental data as of Q3 of the preceding year.  The following steps are required prior to updating price data in a new calendar year:  
-1. Update the table `edgar.company_tickers` with CIK and ticker data using the python function `get_active_delisted`.  
-2. Update the table `alpha_vantage.active_delisted` with IPO and delist date data usng the python function `update_active_delisted`. 
+1. Update the table `edgar.company_tickers` with CIK and ticker data using the python function `update_sec_company_tickers`.  
+2. Update the table `alpha_vantage.active_delisted` with IPO and delist date data using the python function `update_active_delisted`. 
 3. Update the table `reference.ticker_cik_sic_ind` using the custom query and logic in the excel file `cik_fndmntl_univ.xlsx`.
 3. Update the `reference.fundamental_universe` table with data derived from the function `edgar.edgar_fndmntl_fltr_fn` and logic in the excel file `cik_fndmntl_univ.xlsx`.  
 
@@ -131,7 +138,7 @@ Each of these attributes are discretised into deciles.  These deciles have ```_d
 
 ## Functions
 
-The following is an inventory of functions used in maintaining the database.
+The following is an inventory of functions used in maintaining the database.  These are contained in the `function.py` file.
 
 ```pg_connect``` Conveniance function to connect to database.  
 ```get_edgar_fnl_stmt``` Extract financial statememt data from from SEC website.  Under development - to be adapted from script edgar_import.py.  
