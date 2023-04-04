@@ -12,7 +12,7 @@ This repo contains Python, R and SQL scripts for interacting with the PostgreSQL
 ## Update procedures
 
 ### Airflow  
-[Airflow](https://airflow.apache.org/) is being used as an orchestrator to retrieve and process data as laid out above.  Airflow is Linux only and hence has been installed on Windows Subsystem for Linux ("WSL").  The PostgreSQL database, R and Python are installed on Windows.  Thus Airflow needs to traverse WSL and Windows, it does this calling Windows batch files via the Airflow Bash Operator.  Batch files in turn call the individual R and Python scripts operating on the data.  Airflow artifacts (except for the Python DAG file) reside in the ```airflow``` folder.
+[Airflow](https://airflow.apache.org/) is used as an orchestrator to retrieve and process data as laid out above.  Airflow is Linux only and hence has been installed on Windows Subsystem for Linux ("WSL").  The PostgreSQL database, R and Python are installed on Windows.  Thus Airflow needs to traverse WSL and Windows, it does this calling Windows batch files via the Airflow Bash Operator.  Batch files in turn call the individual R and Python scripts operating on the data.  Airflow artifacts (except for the Python DAG file) reside in the ```airflow``` folder.
 
 Calling jobs with a two step process via batch files and in turn via bash commands is not the standard use case for Airflow.  This is quiet a long "chain of command" and passing parameters can be tricky.  However one benefit of this approach is ability to invoke scripts in specific environments.  Each batch file will utilise one of the following:  
 
@@ -24,6 +24,15 @@ depending on whether Python, PostgeSQL or R is being used.
 
 All scripts called by Airflow are in the [airflow](https://github.com/Brent-Morrison/Stock_master/tree/master/airflow) folder.
 
+#### Airflow startup  
+Via Ubuntu terminal:
+1. ```sudo service postgresql start```
+2. ```airflow db init```
+3. ```airflow scheduler```  
+4. ```airflow webserver``` (requires new Ubuntu window)  
+
+### Database status  
+The status of the database is queried with the script [here](https://github.com/Brent-Morrison/Stock_master/tree/master/misc/db_status.R)
 
 ### Monthly procedures - selecting stocks to retrieve   
 The universe of stocks for which price data is to be retrieved is detemined with respect to stock size (assets and equity).  The diagram below shows the objects used in this assessment: 

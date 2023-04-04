@@ -487,7 +487,7 @@ if (ts_regr) {
   
   # Reticulate for multivariate Thiel Sen regression
   use_condaenv(condaenv = 'STOCK_MASTER', required = TRUE)
-  source_python('C:/Users/brent/Documents/VS_Code/postgres/postgres/ts_regression.py')
+  source_python('C:/Users/brent/Documents/VS_Code/postgres/postgres/python/ts_regression.py')
   
   
   # Regression inputs - Non-financial data

@@ -5,6 +5,7 @@ import numpy as np
 import datetime as dt
 import requests
 import time
+import json
 import os
 import io as io
 #import sys
@@ -637,12 +638,48 @@ def update_sec_company_tickers(conn):
 
   # Insert to postgres database
   update_df.to_sql(name='company_tickers', con=conn, schema='edgar', 
-                          index=False, if_exists='append', method='multi', chunksize=10000)
+                  index=False, if_exists='append', method='multi', chunksize=10000)
 
   print(len(update_df), "records inserted")
 
 
 
+
+
+
+
+# SIMFIN COMPANY INFORMATION ----------------------------------------------------------------------------------------
+# https://github.com/SimFin/web-api-examples/blob/master/python/basic-example.py
+
+def update_simfin_company_tickers(conn):
+
+  # Using simfin API
+  url = 'https://backend.simfin.com/api/v3/companies/list'
+  api_key = config['simfin']
+  headers={"Authorization": "api-key "+api_key, "accept": "application/json"}
+  r = requests.get(url , headers=headers)
+  companies = r.json()
+  #print(r.request.headers)
+
+  # Result to dataframe
+  df = pd.DataFrame(companies) 
+  df['capture_date'] = dt.datetime.today().date()
+  df.rename(columns={
+    'id': 'simfin_id',
+    'name': 'company_name',
+    'sector': 'industry_id'},
+    inplace=True)
+  df = df[['ticker','simfin_id','company_name','industry_id','capture_date']]
+
+  # Filter for new records
+  existing = pd.read_sql(sql=text("""select * from simfin.us_companies"""), con=conn)
+  update_df = pd.concat([df, existing]).sort_values(by=['ticker','simfin_id', 'capture_date']).drop_duplicates(subset=['ticker','simfin_id'], keep=False)
+
+  # Insert to postgres database
+  update_df.to_sql(name='us_companies', con=conn, schema='simfin', 
+                  index=False, if_exists='append', method='multi', chunksize=10000)
+
+  print(len(update_df), "records inserted")
 
 
 

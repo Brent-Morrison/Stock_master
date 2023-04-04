@@ -276,7 +276,7 @@ if len(qtrs_req) > 0:
 
             # Push to bad data and "final" tables.  TO DO - THIS IS NOT REQUIRED IF UNIQUENESS IS CONFIRMED, WRITE DIRECTLY TO THESE TABLES
             print('Start final table insert for {q} - elapsed time: {t} seconds'.format(q=qtr, t=int((dt.datetime.now() - tik).total_seconds())))
-            sql_file = open(project_path+"\\edgar_push_stage_final.sql")
+            sql_file = open(project_path+"\\postgres\\edgar_push_stage_final.sql")
             text_sql = text(sql_file.read())
             conn.execute(text_sql)
             print('Complete final table insert for {q} - elapsed time: {t} seconds'.format(q=qtr, t=int((dt.datetime.now() - tik).total_seconds())))

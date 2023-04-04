@@ -64,11 +64,11 @@ else:
 
 # Grab tickers from database, this is the population
 # for which data will be updated
-tickers = pd.read_sql(
-sql=text("""select * from access_layer.tickers_to_update_fn(valid_year_param => 2022, nonfin_cutoff => 950, fin_cutoff => 150)""")
-#sql=text("""select * from test.tickers_to_update where symbol in ('B','BA','BAX','BBBY','HWM','INT','INTC') order by 1""")  ## TOGGLE FOR TEST ##
-,con=conn)
 
+# Extract year from date for 'valid_year_param'
+year = update_to_date.strftime("%Y")
+sql_stmt=text("select * from access_layer.tickers_to_update_fn(valid_year_param => :yr, nonfin_cutoff => 950, fin_cutoff => 150)")
+tickers = pd.read_sql(sql=sql_stmt ,con=conn, params={"yr" : year})
 
 # Remove trailing underscores from column names
 tickers.columns = tickers.columns.str.rstrip('_')      ## TOGGLE FOR TEST ##

@@ -104,7 +104,7 @@ alter table reference.ticker_cik_sic_ind add primary key (ticker, cik, capture_d
 
 
 -- Select new data to insert. To be copied to excel for manual over-ride
--- TO DO: needs include "capture_date"
+-- TO DO: needs to include "capture_date"
 select 
 new_.* 
 from 
@@ -118,12 +118,39 @@ from
 	,ad.exchange 
 	,ad.ipo_date 
 	,ad.delist_date 
+	--,ad.status 
 	--,count(*) asn
-	from edgar.company_tickers ct
-	left join alpha_vantage.active_delisted ad
-	on ct.ticker = ad.symbol 
-	left join edgar.edgar_fndmntl_fltr_fn(nonfin_cutoff => 1350, fin_cutoff => 150 ,qrtr => '%q3', bad_data_fltr => false) fn
-	on ct.cik_str = fn.cik
+	from 
+		(
+			select distinct on (cik) fn.* 
+			--select distinct cik, sic, filed
+			from edgar.edgar_fndmntl_fltr_fn(nonfin_cutoff => 1350, fin_cutoff => 150 ,qrtr => '%q3', bad_data_fltr => false) fn
+			where sec_qtr = '2011q3'
+			order by cik, ddate
+		) fn  -- multiple quarterly results submitted in the one quarter
+	left join 
+		(
+			select 
+			distinct on (cik_str, ticker_letter) ct.*
+			from
+				(
+					select 
+					ct.* 
+					,left(ticker, 1) as ticker_letter
+					,length(ticker) as ticker_len
+					from edgar.company_tickers ct
+				) ct
+			order by cik_str, ticker_letter, ticker_len asc
+		) ct
+	on fn.cik = ct.cik_str
+	left join --  SEE MULTIPLE ABMD
+		(
+		select distinct on (symbol) ad.*
+		from alpha_vantage.active_delisted ad
+		order by symbol, capture_date desc
+		) ad 
+	
+	on ct.ticker = ad.symbol
 	left join 
 	(
 		select 
@@ -132,28 +159,29 @@ from
 		order by ticker, capture_date desc
 	) sf
 	on ct.ticker = sf.ticker
-	where ad.symbol is not null and fn.cik is not null
-	group by 1,2,3,4,5,6,7,8
+	--where fn.filed between ad.ipo_date and ad.delist_date 
+	--and ad.status = 'Active'
+) new_	
+ 	
+left join 	
 	
-) new_
- 
-left join 
-
-(
+(	
 	select 
 	ticker
 	,cik
 	,delist_date 
 	from reference.ticker_cik_sic_ind
-) old_
-
-on new_.ticker = old_.ticker
-and new_.cik = old_.cik
-and new_.delist_date = old_.delist_date
-where old_.ticker is null
-order by 1,2
+) old_	
 	
+on new_.ticker = old_.ticker	
+and new_.cik = old_.cik	
+and new_.delist_date = old_.delist_date	
+where old_.ticker is null	
+order by 1,2	
+
+
 select * from reference.ticker_cik_sic_ind where delist_date = '1900-01-01';
+
 
 -- Truncate table prior to full re-load
 truncate reference.ticker_cik_sic_ind;
@@ -180,20 +208,25 @@ delimiter ',' csv header;
 * 
 ******************************************************************************/
 
-select * from reference.fundamental_universe
 
-truncate reference.fundamental_universe
+
 
 -- Query for selection of current year universe
-select
-cik
-,fy + 1  as valid_year
-,fin_nonfin
-,total_assets
-,total_equity
-,combined_rank
-from edgar.edgar_fndmntl_fltr_fn(nonfin_cutoff => 1350, fin_cutoff => 150 ,qrtr => '%q3', bad_data_fltr => false)
-where sec_qtr = '2021q3'
+select 
+distinct on (cik) f.*
+from
+(
+	select	
+	cik	
+	,fy + 1  as valid_year	
+	,fin_nonfin	
+	,total_assets	
+	,total_equity	
+	,combined_rank	
+	from edgar.edgar_fndmntl_fltr_fn(nonfin_cutoff => 1350, fin_cutoff => 150 ,qrtr => '%q3', bad_data_fltr => false)
+	where sec_qtr = '2022q3'	
+) f
+order by cik, valid_year asc
 
 			
 create table reference.fundamental_universe			
@@ -209,10 +242,18 @@ create table reference.fundamental_universe
 alter table reference.fundamental_universe owner to postgres;
 alter table reference.fundamental_universe add primary key (cik, valid_year);
 
+
+-- Truncate table prior to full re-load
+truncate reference.fundamental_universe
+
+
+-- Table insert from csv
 copy reference.fundamental_universe		
 from 'C:\Users\brent\Documents\VS_Code\postgres\postgres\reference\fundamental_universe.csv' 			
 delimiter ',' csv header;
 
+
+select * from reference.fundamental_universe
 
 
 
