@@ -145,22 +145,6 @@ The table below shows attributes codes and descriptions.
 Each of these attributes are discretised into deciles.  These deciles have ```_dcl``` appended.  Some attributes have also been assigned to deciles by industry group.  These are appended with ```_sctr_dcl```.  The first decile is the lowest value of the attribute in question.  Ordering has not been aligned to the consensus view of the attribute / factor effect. 
 
 
-## Functions
-
-The following is an inventory of functions used in maintaining the database.  These are contained in the `function.py` file.
-
-```pg_connect``` Conveniance function to connect to database.  
-```get_edgar_fnl_stmt``` Extract financial statememt data from from SEC website.  Under development - to be adapted from script edgar_import.py.  
-```get_alphavantage``` Grab price or EPS data from Alpha Vantage.  Return to pandas dataframe.  
-```copy_from_stringio``` Save dataframe in memory and use copy_from() to copy it to database table.  Alternate to pandas to_sql function.
-```update_av_data``` Write data retrieved with ```get_alphavantage``` to database.  
-```update_sp500_yf``` Grab S&P 500 index price data using the yfinance library and write to database.  
-```get_sp500_cnstnt_wiki``` Grab S&P 500 constituent list from Wikipedia. 
-```get_sp500_cnstnt_dlt_wiki``` Grab S&P 500 constituent list change from Wikipedia.  
-```get_sp1000_cnstnt_wiki``` Grab S&P 1000 constituent list from Wikipedia. 
-```get_russell1000_cnstnt_wiki``` Grab Russell 1000 constituent list from Wikipedia. 
-
-
 
 ## Development
 

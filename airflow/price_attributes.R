@@ -39,10 +39,10 @@ library(jsonlite)
 
 args <- commandArgs(trailingOnly = TRUE)
 
-#database <- 'stock_master'
-#update_to_date <- '2022-12-31'
-database <- args[1]        
-update_to_date <- args[2]  
+database <- 'stock_master'
+update_to_date <- '2023-05-31'
+#database <- args[1]        
+#update_to_date <- args[2]  
 deciles = FALSE
 write_to_db = TRUE
 disconnect = TRUE 
@@ -81,6 +81,7 @@ sql_max_date <- "select max(date_stamp) from access_layer.return_attributes"
 qry_max_date <- dbSendQuery(conn = con, statement = sql_max_date) 
 start_date_df <- dbFetch(qry_max_date)
 start_date <- as.Date(start_date_df[[1]])
+print(paste0('Maximum database date : ', start_date))
 
 # Valid year parameter for extract function
 valid_year_param <- as.integer(year(as.Date(update_to_date)))
@@ -92,6 +93,27 @@ sql1 <- sqlInterpolate(conn = con, sql = sql1, valid_year_param = valid_year_par
 qry1 <- dbSendQuery(conn = con, statement = sql1) 
 df_raw <- dbFetch(qry1)
 colnames(df_raw) <- sub("_$","",colnames(df_raw)) # Remove underscores
+df_raw <- arrange(df_raw, symbol, date_stamp, sector, industry)
+
+# Check data for duplicates
+dupe_test <- df_raw %>% select(date_stamp, symbol, close) %>%
+  group_by(date_stamp, symbol) %>% 
+  summarise(records = n()) %>% 
+  filter(records > 1) 
+
+if(nrow(dupe_test) > 0) {
+  print(paste0(nrow(df_raw), ' records returned over ',length(unique(df_raw$symbol)), ' stocks'))
+  print(paste0(nrow(dupe_test), ' duplicate records found over ',length(unique(dupe_test$symbol)), ' stocks'))
+} else {
+  print(paste0(nrow(df_raw), ' records returned over ',length(unique(df_raw$symbol)), ' stocks'))
+  print('No duplicates found')
+}
+
+# Remove dupes
+if(nrow(dupe_test) > 0) {
+  df_raw <- distinct(df_raw, date_stamp, symbol, .keep_all= TRUE)
+  print(paste0(nrow(dupe_test), ' duplicate records removed'))
+}
 
 
 # TO DO - check that data has been returned
@@ -104,18 +126,7 @@ qry2 <- dbSendQuery(conn = con, statement = sql2)
 valid_year_trade_days <- dbFetch(qry2)
 
   
-# Check data for duplicates
-dupe_test <- df_raw %>% select(date_stamp, symbol, close) %>%
-  group_by(date_stamp, symbol) %>% 
-  summarise(records = n()) %>% 
-  filter(records > 1) 
 
-
-# TO DO - remove duplicates
-
-#if(nrow(dupe_test) > 0) {
-#  stop(paste0('Duplicate records found for tickers: ', unique(unlist(dupe_test[c("symbol")]))))
-#}
   
   
 
