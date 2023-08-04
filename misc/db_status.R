@@ -225,3 +225,23 @@ p1 <- ggplot(df, aes(x = reorder(data_source, desc(data_source)), y = date_stamp
   theme(axis.text.y = element_text(hjust = 0)) 
 
 p1
+
+
+
+# Plot number of stocks over time
+ggplot(data = c_price_rtn_data, aes(x = date_stamp, y = as.numeric(n), group = 1)) +
+  geom_line() +
+  geom_point() +
+  labs(
+    x = "", y = "",
+    title = paste("Price return data")
+  )
+
+
+ggplot(data = f_fndmntl_ind_data, aes(x = date_stamp, y = as.numeric(n), group = 1)) +
+  geom_line() +
+  geom_point() +
+  labs(
+    x = "", y = "",
+    title = paste("Fundamental data")
+  )

@@ -82,7 +82,7 @@ order by 1,2;
 ***************************************************************************************************************************/
 
 -- Stock price data
-select * from access_layer.shareprices_daily where symbol = 'A'
+select * from access_layer.shareprices_daily where symbol = 'ZTS'
 
 
 -- AV data status
@@ -138,13 +138,16 @@ alpha_vantage
 select * from alpha_vantage.active_delisted
 
 -- Return attributes status
-select date_stamp, count(*) as n from access_layer.return_attributes where date_stamp > current_date - interval '3 years' group by 1 order by 1 desc
+select date_stamp, count(*) as n from access_layer.return_attributes where date_stamp > current_date - interval '20 years' group by 1 order by 1 desc
 
 -- S&P 500 data status
 select max(timestamp) from alpha_vantage.shareprices_daily where symbol = 'GSPC'
 
 -- Query in R "price_attribute" function
-select * from alpha_vantage.daily_price_ts_fn(valid_year_param => 2020, nonfin_cutoff => 900, fin_cutoff => 100)
+select * from access_layer.daily_price_ts_fn(valid_year_param_ => 2023, nonfin_cutoff_ => 900, fin_cutoff_ => 100) where symbol_ = 'IIVI'
+-- old version
+select * from alpha_vantage.daily_price_ts_fn(valid_year_param => 2023, nonfin_cutoff => 900, fin_cutoff => 100)
+
 
 select * from edgar.num
 
@@ -159,7 +162,7 @@ select 'tag' as table, sec_qtr, count(*) as n from edgar.tag group by 1,2
 ) t1 order by 2 desc, 1 asc
 
 
-select * from edgar.num_stage where adsh in ('0000006955-21-000003','0000006955-21-000012')
+select * from edgar.num_stage where adsh in ('0000320193--22-000108') --'0000320193--22-000108'
 select sec_qtr , count(*) as n from edgar.num group by 1
 
 select * from alpha_vantage.shareprices_daily where symbol in ('BLUE') and "timestamp" between '2021-10-31' and '2021-11-30' order by symbol, "timestamp"
@@ -493,7 +496,7 @@ and uom = 'shares'
 and coreg = 'NVS'
 order by 1,4
 
-select * from edgar.num where adsh in ('0001326801-20-000013') and uom = 'shares' --tag like '%Entity%', adsh in ('0001326801-20-000013','0001326801-20-000076','0001564590-20-020502','0001564590-19-039139')
+select * from edgar.num where adsh in ('0001615774-19-006777') and uom = 'shares' --tag like '%Entity%', adsh in ('0001326801-20-000013','0001326801-20-000076','0001564590-20-020502','0001564590-19-039139')
 select * from edgar.sub where cik = '1702780'
 select tag, count(distinct adsh) from edgar.num where uom = 'shares' group by 1
 
@@ -512,6 +515,8 @@ select count(*) from alpha_vantage.shareprices_daily where symbol = 'AAT' and "t
 select * from reference.fundamental_universe where cik = 1144980
 select * from reference.ticker_cik_sic_ind where cik = 1500217
 select * from edgar.edgar_fndmntl_all_tb where stock like '%APPLE INC%' --(shares_cso > 0 and shares_cso < 10) and (shares_ecso > 0 and shares_ecso < 10)
+select ticker, cik, sic, count(*) as n from reference.ticker_cik_sic_ind where delist_date between now()::date and '9998-12-31'::date group by 1,2,3 having count(*) > 1
+select distinct on (ticker) ticker, cik, sic from reference.ticker_cik_sic_ind order by ticker, delist_date
 select * from edgar.qrtly_fndmntl_ts_vw where ticker = 'AAPL'
 select * from edgar.qrtly_fndmntl_ts_vw where date_available >= '2021-12-01' and date_available <= '2022-03-31' and ticker = 'AAPL'
 
@@ -574,9 +579,9 @@ select * from reference.ticker_cik_sic_ind
 
 select * from reference.fundamental_universe where valid_year = 2020 and ((fin_nonfin = 'financial' and combined_rank < 100) or (fin_nonfin != 'financial' and combined_rank < 900))
 
-select * from reference.lookup where lookup_table = 'simfin_industries'
+select * from reference.lookup where lookup_table = 'tag_mapping'
 
-select * from reference.lookup where lookup_ref = '102001'
+select distinct lookup_table from reference.lookup
 
 update reference.lookup set lookup_val4 = '3' where lookup_ref = '102001'
 
@@ -835,7 +840,6 @@ order by 1,2
 
 
 
-
 --fundamental_universe
 select 
 distinct on (cik) f.*
@@ -894,10 +898,23 @@ and t1.capture_date = t2.capture_date
 			
 select * from access_layer.tickers_to_update_fn(valid_year_param => 2023, nonfin_cutoff => 950, fin_cutoff => 150)
 select * from access_layer.tickers_to_update_fn()
+select * from access_layer.return_attributes where date_stamp > current_date - interval '5 years' and symbol = 'AAPL' order by 2, 1
+select date_stamp, report_date, publish_date, total_equity from access_layer.fundamental_attributes where date_stamp > current_date - interval '5 years' and ticker = 'AAPL' order by 1  --date_stamp, total_equity
 
 
-
-
+select 
+r.date_stamp
+,r.rtn_ari_1m 
+,f.report_date
+,f.publish_date
+,f.total_equity
+,f.mkt_cap 
+from access_layer.return_attributes r 
+left join access_layer.fundamental_attributes f
+on r.date_stamp = f.date_stamp 
+and r.symbol = f.ticker 
+where r.date_stamp between '2017-01-31'::date and '2023-12-31'::date 
+and r.symbol = 'AAPL' order by 1
 
 
 select * from reference.sp500_cons_temp;
@@ -926,9 +943,10 @@ create table reference.sp500_cons_mdate
 
 --truncate table reference.sp500_cons
 
-select * from reference.sp500_cons;
+select * from reference.sp500_cons order by min_date desc;
 
-select * from reference.sp500_cons_temp;
+--select * from reference.sp500_cons_temp;
+--delete from reference.sp500_cons_temp where date_stamp is not null = '1997-06-17'::date;
 
 with max_date_tbl as (
 	select max(max_date) as max_date 
@@ -948,7 +966,7 @@ set max_date = max_date_tbl.max_date from max_date_tbl;
 
 select * from reference.sp500_cons_mdate;
 
--- Insert re additions (IF THIS IS DONE SECOND NIL RESULTS ARE RETURNED - THE MAX_DATE HAS CHANGED)
+-- Insert re additions (HAS TO BE DONE FIRST.  IF THIS IS DONE SECOND NIL RESULTS ARE RETURNED - THE MAX_DATE HAS CHANGED)
 with insert_tbl as (
 	select
 	added 				as ticker
@@ -959,7 +977,8 @@ with insert_tbl as (
 	where date_stamp > (select max_date from reference.sp500_cons_mdate)
 	and added is not null
 	)
---select * from insert_tbl
+
+	--select * from insert_tbl
 insert into reference.sp500_cons select * from insert_tbl;
 
 
@@ -977,6 +996,7 @@ with update_tbl as (
 	and t.removed is not null
 	and c.max_date = '9998-12-31'::date
 	)
+
 --select * from update_tbl
 update reference.sp500_cons c
 set max_date = u.max_date,
@@ -984,5 +1004,285 @@ set max_date = u.max_date,
 from update_tbl u
 where c.ticker = u.ticker;
 
-select * from reference.sp500_cons;
-select * from  reference.sp500_cons where '2000-03-31'::date between min_date and max_date
+select * from reference.sp500_cons where ticker = 'FRC';
+
+-- Constituents for specific date
+select * from  reference.sp500_cons 
+where '1996-01-31'::date between min_date and max_date
+order by min_date desc
+
+-- Assess date range of price data collected for stocks ever in the S&P500
+select
+sp.*
+,spd.min_price_date
+,spd.max_price_date
+,spd.n
+from reference.sp500_cons sp
+left join
+(
+	select 
+	symbol
+	,min(date_stamp) as min_price_date 
+	,max(date_stamp) as max_price_date 
+	,count(*) as n
+	from access_layer.shareprices_daily
+	group by symbol
+) spd
+on sp.ticker = spd.symbol 
+where '1996-01-31'::date between min_date and max_date
+order by min_date DESC
+
+
+--=======================================================================================================================
+-- Show table
+--=======================================================================================================================
+--drop index reference.permno_idx reference.signed_predictors_dl_wide
+
+ALTER TABLE reference.datashare RENAME TO eapvml; --
+ALTER TABLE reference.signed_predictors_dl_wide RENAME TO osap; --
+
+create index eapvml_permno_idx on reference.eapvml (permno)
+create index osap_permno_idx on reference.osap (permno)
+
+/*-------------------------------------------------------------------------------------------------
+##### EAPVML table #####
+https://www.crsp.org/products/documentation/stkquery-stock-data-access (AAPL = 14593 / MSFT = 10107 / AMBC = 12491
+
+https://www.sec.gov/Archives/edgar/data/320193/000032019318000145/a10-k20189292018.htm
+    mvel1 /sep 	  sp / mar	   sales /
+   790,050,073 	0.29015122	 229,234 
+ 1,073,390,566 	0.24721570	 265,359 (sept 2018 / mar 2019 / ye sep 2018), therefore lag 
+ 
+ ISSUES
+ BM is prepared on different basis to other annual ratios such as SP
+
+---------------------------------------------------------------------------------------------------*/
+drop table if exists eo;
+
+create temporary table eo as 
+(
+	select e.permno, e.date_stamp, e.mvel1, e.sp, e.ep, e.cfp, e.salecash, e.lev, e.bm, o.bm as bm_o, e.gma, o.gp, e.saleinv, salerec
+	from reference.eapvml e
+	left join reference.osap o
+	on  e.date_stamp = o.date_stamp 
+	and e.permno     = o.permno
+	where e.permno in (14593, 10107) -- AAPL / MSFT
+);
+
+
+
+with t1 as 
+(
+	select permno, date_stamp, mvel1, sp, ep, cfp, salecash, lev, bm, bm_o, gma, gp, saleinv, salerec
+	,row_number() over (partition by permno, sp order by date_stamp) as fiscal_month1
+	from eo
+)
+
+,t2 as 
+(
+	select t1.*
+	,lag(fiscal_month1, 7) over (partition by permno order by date_stamp) as fiscal_month
+	from t1
+)
+
+,t3 as 
+(
+	select 
+	permno, date_stamp, round(mvel1/1000) as mkt_cap --, t2.*
+	,round(lag(mvel1, (case when fiscal_month > 5 then fiscal_month else fiscal_month + 12 end)::int) over (partition by permno order by date_stamp) / 1000) as mvel_ye
+	,round(sp  * (lag(mvel1, (case when fiscal_month > 5 then fiscal_month else fiscal_month + 12 end)::int) over (partition by permno order by date_stamp) / 1000)) as sales_i 
+	,round(ep  * (lag(mvel1, (case when fiscal_month > 5 then fiscal_month else fiscal_month + 12 end)::int) over (partition by permno order by date_stamp) / 1000)) as net_income_annl_i
+	,round(cfp * (lag(mvel1, (case when fiscal_month > 5 then fiscal_month else fiscal_month + 12 end)::int) over (partition by permno order by date_stamp) / 1000)) as oper_cflow_i 
+	,round(sp  * (lag(mvel1, (case when fiscal_month > 5 then fiscal_month else fiscal_month + 12 end)::int) over (partition by permno order by date_stamp) / 1000) / salecash) as cash_i 
+	,round(sp  * (lag(mvel1, (case when fiscal_month > 5 then fiscal_month else fiscal_month + 12 end)::int) over (partition by permno order by date_stamp) / 1000) / saleinv) as inventory_i 
+	,round(sp  * (lag(mvel1, (case when fiscal_month > 5 then fiscal_month else fiscal_month + 12 end)::int) over (partition by permno order by date_stamp) / 1000) / salerec) as receivables_i 
+	,round(lev * (lag(mvel1, (case when fiscal_month > 5 then fiscal_month else fiscal_month + 12 end)::int) over (partition by permno order by date_stamp) / 1000)) as total_liab_i 
+	,round(bm  * (lag(mvel1, (case when fiscal_month > 5 then fiscal_month else fiscal_month + 12 end)::int) over (partition by permno order by date_stamp) / 1000)) as total_equity_i -- different basis
+	,round(exp(bm_o) * (mvel1 / 1000)) as total_equity_io
+	,saleinv
+	,gp
+	from t2
+	order by permno, date_stamp
+)
+select 
+t3.*
+--permno
+,min((date_stamp - interval '6 month')::date) over (partition by mvel_ye) as report_date
+,total_liab_i + total_equity_io as total_assets_i 
+,round(sales_i - ((total_liab_i + total_equity_io) * gp)) as cogs_i
+from t3
+order by permno, date_stamp
+
+
+-------------------------
+
+select distinct on (date_stamp) date_stamp, permno from reference.osap order by date_stamp
+select permno, date_stamp, sp from reference.eapvml where permno in (14593, 10107)  AAPL  
+
+-------------------------
+
+select 
+o.date_stamp 
+,case when extract(month from o.date_stamp) = 3 then 1 else 0 end as mon
+--,e.sic2
+,e.mvel1 /*
+,sp.adjusted_close
+,sp.adjusted_close / lag(sp.adjusted_close, 1) over (order by o.date_stamp) -1 as rtn_ari_1m
+,e.mom1m
+,e.mom12m
+,o.mom12m
+,lag(sp.adjusted_close, 1) over (order by o.date_stamp) / lag(sp.adjusted_close, 12) over (order by o.date_stamp) -1 as rtn_ari_12m
+,o.bm
+,o.bmdec */
+,fa.total_equity
+,round(exp(o.bm) * (e.mvel1 / 1000)) as total_equity_i
+,o.leverage  -- different to below
+,e.lev		 -- different to above
+,total_liab
+,round(o.leverage * (e.mvel1 / 1000)) as total_liab_i
+,round(o.cfp * (e.mvel1 / 1000)) as oper_cflow_i
+,ttm_earnings
+,round(o.ep * (e.mvel1 / 1000)) as earnings_i
+,e.sp as sales_price
+,round(e.sp * (e.mvel1 / 1000)) as sales_i
+--,e.dolvol
+--,o.dolvol
+from reference.eapvml e
+full outer join reference.osap o
+on  e.date_stamp = o.date_stamp 
+and e.permno     = o.permno 
+left join 
+(
+	select 
+	spd.symbol 
+	,(date_trunc('month', spd.date_stamp) + interval '1 month - 1 day')::date as date_stamp
+	,spd."close"
+	,spd.adjusted_close 
+	from access_layer.shareprices_daily spd
+	inner join 
+	(
+		select 
+		max(date_stamp) as last_trade_date
+		from access_layer.shareprices_daily
+		where symbol = 'GSPC'
+		group by date_trunc('month', date_stamp) 	
+	) ltd
+	on spd.date_stamp = ltd.last_trade_date
+	where symbol = 'AAPL'
+	--order by date_stamp 
+) sp
+on e.date_stamp = sp.date_stamp
+left join 
+(
+	select
+	date_stamp 
+	,fiscal_year 
+	,fiscal_period 
+	,report_date 
+	,publish_date 
+	,-total_equity as total_equity
+	,-total_liab as total_liab
+	,ttm_earnings 
+	from access_layer.fundamental_attributes 
+	where ticker = 'AAPL'
+) fa
+on e.date_stamp = fa.date_stamp
+where e.permno = 14593 or o.permno = 14593
+
+---------------------------------------------------------------------------------------------------
+	
+select 
+spd.symbol 
+,spd.date_stamp as ds_old
+,(date_trunc('month', spd.date_stamp) + interval '1 month - 1 day')::date as date_stamp
+,spd.adjusted_close 
+from access_layer.shareprices_daily spd
+inner join 
+(
+	select 
+	max(date_stamp) as last_trade_date
+	from access_layer.shareprices_daily
+	where symbol = 'GSPC'
+	group by date_trunc('month', date_stamp) 	
+) ltd
+on spd.date_stamp = ltd.last_trade_date
+where symbol = 'AAPL'
+order by date_stamp 
+
+
+select 
+e.date_stamp
+,e.permno 
+,pt.ticker 
+,round(e.mvel1 / 1000) as mkt_cap
+,spd.adjusted_close 
+,row_number() over (partition by e.date_stamp order by e.mvel1 desc) as mkt_cap_rank
+from reference.eapvml e
+left join reference.permno_ticker_iw pt 
+on e.permno = pt.permno 
+left join access_layer.shareprices_daily spd 
+on pt.ticker = spd.symbol 
+and e.date_stamp = spd.date_stamp 
+where e.date_stamp between '2020-09-30'::date and '2021-09-30'::date
+and pt.ticker != 'no_data'
+and pt.max_date = '2021-12-31'::date
+
+
+select date_stamp, ticker, mom1m, retvol from 
+(
+	select 
+	e.date_stamp
+	,e.permno 
+	,pt.ticker 
+	,e.mom1m
+	,e.retvol
+	,row_number() over (partition by e.date_stamp order by e.mvel1 desc) as mkt_cap_rank
+	from reference.eapvml e
+	left join reference.permno_ticker_iw pt 
+	on e.permno = pt.permno 
+	where e.date_stamp between '2021-03-31'::date and '2021-09-30'::date
+	and pt.ticker != 'no_data'
+	and pt.max_date = '2021-12-31'::date
+) t1
+where mkt_cap_rank <= 500
+
+select count(distinct date_stamp) from reference.datashare
+select count(distinct permno) from reference.signed_predictors_dl_wide
+select count(distinct date_stamp) from reference.signed_predictors_dl_wide
+
+
+select * from reference.permno_ticker_iw where ticker in ('SD','CHV','CVX')
+select obj_description('reference.permno_ticker_iw'::regclass, 'pg_class')
+
+
+select version()
+
+select
+column_name 
+,data_type
+,numeric_precision 
+,numeric_precision_radix 
+,numeric_scale 
+from information_schema.columns
+where table_schema = 'reference'
+and table_name   = 'datashare'
+
+
+
+------------
+-- drop indexs and tables
+alter table edgar.num drop constraint num_pkey;
+alter table edgar.sub drop constraint sub_pkey;
+drop table edgar.num_bad;
+drop table edgar.sub_bad;
+
+-- Confirm test db is identical to production
+select 'sub' as table, sec_qtr, count(*) as n from edgar.sub group by 1,2 order by 2 desc, 1 asc
+
+with t1 as 
+(
+select distinct sec_qtr from edgar.sub except 
+select distinct sec_qtr from edgar.edgar_fndmntl_all_tb
+)
+select * from edgar.edgar_fndmntl_all_vw 
+where sec_qtr = '2023q2'

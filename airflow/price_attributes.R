@@ -17,6 +17,10 @@
 #
 # ------------------------------------------------------------------------------------------------------------------------
 
+# Log file
+loc <- "C:/Users/brent/Documents/VS_Code/postgres/postgres/update_iex_prices_dag.log"
+log_con <- file(loc, open="a")
+
 start_time <- Sys.time()
 
 # Libraries
@@ -39,10 +43,10 @@ library(jsonlite)
 
 args <- commandArgs(trailingOnly = TRUE)
 
-database <- 'stock_master'
-update_to_date <- '2023-05-31'
-#database <- args[1]        
-#update_to_date <- args[2]  
+#database <- 'stock_master'
+#update_to_date <- '2023-06-30'
+database <- args[1]        
+update_to_date <- args[2]  
 deciles = FALSE
 write_to_db = TRUE
 disconnect = TRUE 
@@ -82,6 +86,7 @@ qry_max_date <- dbSendQuery(conn = con, statement = sql_max_date)
 start_date_df <- dbFetch(qry_max_date)
 start_date <- as.Date(start_date_df[[1]])
 print(paste0('Maximum database date : ', start_date))
+cat(paste0('Maximum database date : ', start_date), file = log_con)
 
 # Valid year parameter for extract function
 valid_year_param <- as.integer(year(as.Date(update_to_date)))
@@ -95,6 +100,10 @@ df_raw <- dbFetch(qry1)
 colnames(df_raw) <- sub("_$","",colnames(df_raw)) # Remove underscores
 df_raw <- arrange(df_raw, symbol, date_stamp, sector, industry)
 
+# Logging
+print(paste0(nrow(df_raw), ' records returned over ',length(unique(df_raw$symbol)), ' stocks'))
+cat(paste0('\nDB fetch : ', nrow(df_raw), ' records returned over ',length(unique(df_raw$symbol)), ' stocks'), file = log_con)
+
 # Check data for duplicates
 dupe_test <- df_raw %>% select(date_stamp, symbol, close) %>%
   group_by(date_stamp, symbol) %>% 
@@ -102,22 +111,24 @@ dupe_test <- df_raw %>% select(date_stamp, symbol, close) %>%
   filter(records > 1) 
 
 if(nrow(dupe_test) > 0) {
-  print(paste0(nrow(df_raw), ' records returned over ',length(unique(df_raw$symbol)), ' stocks'))
   print(paste0(nrow(dupe_test), ' duplicate records found over ',length(unique(dupe_test$symbol)), ' stocks'))
+  cat(paste0('\nDupes 1 : ', nrow(dupe_test), ' duplicate records found over ',length(unique(dupe_test$symbol)), ' stocks'), file = loc, append = TRUE)
+  print(unique(dupe_test$symbol))
+  cat('\nDupes 2 : ', file = loc, append = TRUE)
+  cat(unique(dupe_test$symbol), file = loc, append = TRUE)
 } else {
-  print(paste0(nrow(df_raw), ' records returned over ',length(unique(df_raw$symbol)), ' stocks'))
   print('No duplicates found')
+  cat('\nDupes 1 : No duplicates found', file = loc, append = TRUE)
 }
 
 # Remove dupes
 if(nrow(dupe_test) > 0) {
-  df_raw <- distinct(df_raw, date_stamp, symbol, .keep_all= TRUE)
+  df_raw <- distinct(df_raw, date_stamp, symbol, .keep_all = TRUE)
   print(paste0(nrow(dupe_test), ' duplicate records removed'))
+  cat(paste0('\nDupes 2 : ', nrow(dupe_test), ' duplicate records removed'), file = loc, append = TRUE)
 }
 
 
-# TO DO - check that data has been returned
-  
   
 # Extract valid trading days from S&P500 series
 sql2 <- "select * from access_layer.daily_sp500_ts_vw where extract(year from date_stamp) = ?valid_year_param"
@@ -200,7 +211,13 @@ month_trade_days_excptn <- select(df_raw, date_stamp, symbol) %>%
   mutate(label = 'month_trade_days_excptn', year = valid_year_param) %>% 
   select(label, year, symbol, month, max_date_actual, n_actual) %>% 
   rename(min_date = month, max_date = max_date_actual, n = n_actual)
-
+# Logging
+if(nrow(month_trade_days_excptn) > 0) {
+  cat('\nLast trading date exclusion : ', file = loc, append = TRUE)
+  cat(unique(month_trade_days_excptn$symbol), file = loc, append = TRUE)
+} else {
+  cat('\nLast trading date exclusion : no exclusions', file = loc, append = TRUE)
+}
 
 # Reference df - stocks with invalid sector / industry data
 invalid_sctr <- df_raw %>% 
@@ -213,6 +230,7 @@ invalid_sctr <- df_raw %>%
 
 # Reference df - stock with not enough trading days to satisfy attribute look-back calculation
 daily_less_500 <- df_raw %>% 
+  filter(!is.na(adjusted_close)) %>% 
   group_by(symbol) %>% 
   filter(n() <= 500) %>% 
   summarise(min_date = min(date_stamp), max_date = max(date_stamp), n = n()) %>% 
@@ -220,7 +238,8 @@ daily_less_500 <- df_raw %>%
   select(label, year, symbol, min_date, max_date, n)
 
 
-# Remove stocks without a full current (most recent) month of trading (see df "month_trade_days_excptn")
+# Remove stocks without a full current (most recent) month of trading (see df "month_trade_days_excptn") &
+# stocks without a 500 days of trading (see df "daily_less_500")
 df_raw$floor_date <- floor_date(df_raw$date_stamp, "month")
 
 daily <- df_raw %>% 
@@ -228,8 +247,12 @@ daily <- df_raw %>%
     x = df_raw,
     y = month_trade_days_excptn, 
     by = c("symbol" = "symbol", "floor_date" = "min_date")
+  )  %>% 
+  anti_join(
+    x = df_raw,
+    y = daily_less_500, 
+    by = c("symbol" = "symbol")
   )
-  
   
 daily <- daily %>% 
   select(-valid_year_ind) %>% 
