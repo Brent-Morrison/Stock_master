@@ -602,6 +602,8 @@ def update_active_delisted(conn, apikey):
   df = df.loc[df['assetType'] == 'Stock']
   df = df.drop('assetType', axis=1)
   existing = pd.read_sql(sql=text("""select * from alpha_vantage.active_delisted"""), con=conn)
+  # This is allowing duplicates, 282 at 2024-02-22 update
+  # Ref - select symbol, exchange, status, count(*) as n from alpha_vantage.active_delisted where capture_date = '2023-02-06' group by 1,2,3
   update_df = pd.concat([df, existing]).sort_values(by=['symbol', 'capture_date']).drop_duplicates(subset=['symbol','exchange','status'], keep=False)
 
   # Push to database
@@ -623,8 +625,15 @@ def update_active_delisted(conn, apikey):
 
 def update_sec_company_tickers(conn):
 
+  header = {
+    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/50.0.2661.75 Safari/537.36",
+    "X-Requested-With": "XMLHttpRequest"
+  }
+
+  j = requests.get('https://www.sec.gov/files/company_tickers.json', headers=header)
+
   # Grab data from SEC website
-  df = pd.read_json('https://www.sec.gov/files/company_tickers.json', orient='index')
+  df = pd.read_json(j.text, orient='index')
 
   # Check columns returns as expected
   if df.columns.tolist() != ['cik_str', 'ticker', 'title']:
