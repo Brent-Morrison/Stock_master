@@ -125,7 +125,7 @@ from
 			select distinct on (cik) fn.* 
 			--select distinct cik, sic, filed
 			from edgar.edgar_fndmntl_fltr_fn(nonfin_cutoff => 1350, fin_cutoff => 150 ,qrtr => '%q3', bad_data_fltr => false) fn
-			where sec_qtr = '2011q3'
+			where sec_qtr = '2023q3'
 			order by cik, ddate
 		) fn  -- multiple quarterly results submitted in the one quarter
 	left join 
@@ -193,6 +193,12 @@ from 'C:\Users\brent\Documents\VS_Code\postgres\postgres\reference\ticker_cik_si
 delimiter ',' csv header;
 
 
+-- Adhoc updates
+update reference.ticker_cik_sic_ind
+set delist_date = '2020-08-01'
+where cik = 82811
+and ticker = 'RBC'
+
 
 
 /******************************************************************************
@@ -224,7 +230,7 @@ from
 	,total_equity	
 	,combined_rank	
 	from edgar.edgar_fndmntl_fltr_fn(nonfin_cutoff => 1350, fin_cutoff => 150 ,qrtr => '%q3', bad_data_fltr => false)
-	where sec_qtr = '2022q3'	
+	where sec_qtr = '2023q3'	
 ) f
 order by cik, valid_year asc
 

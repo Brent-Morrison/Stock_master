@@ -67,7 +67,7 @@ library(jsonlite)
 args <- commandArgs(trailingOnly = TRUE)
 
 #database <- 'stock_master'
-#update_to_date <- '2022-07-31'
+#update_to_date <- '2024-02-29'
 database <- args[1]        
 update_to_date <- args[2]  
 

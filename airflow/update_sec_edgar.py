@@ -78,7 +78,7 @@ if len(qtrs_req) > 0:
     # Get status code for url's for each quarter (check if the data is available on the SEC site for download)
     url_req_status = []
     for qtr in url_req:
-        r = requests.head(url_req[0])
+        r = requests.head(url_req[0], headers={'User-Agent': 'personal brentjohnmorrison@hotmail.com'})
         status = r.status_code
         url_req_status.append(status)
         time.sleep(2)
@@ -118,7 +118,7 @@ if len(qtrs_req) > 0:
         print('Start loop - elapsed time:', int((dt.datetime.now() - tik).total_seconds()), 'seconds')
 
         for url in url_list:
-            resp = requests.get(url)
+            resp = requests.get(url, headers={'User-Agent': 'personal brentjohnmorrison@hotmail.com'})
             zf = ZipFile(io.BytesIO(resp.content))     # Open the Zipfile
             zf_files = zf.infolist()                   # List containing a ZipInfo object for each member of the archive
             
@@ -274,7 +274,7 @@ if len(qtrs_req) > 0:
             print('Complete staging table insert for {q} - elapsed time: {t} seconds'.format(q=qtr, t=int((dt.datetime.now() - tik).total_seconds())))
 
 
-            # Push to bad data and "final" tables.  TO DO - THIS IS NOT REQUIRED IF UNIQUENESS IS CONFIRMED, WRITE DIRECTLY TO THESE TABLES
+            # Push to bad data and "final" tables.  TO DO - CHECK UNIQUENESS, THESE TABLES NO LONGER HAVE KEYS
             print('Start final table insert for {q} - elapsed time: {t} seconds'.format(q=qtr, t=int((dt.datetime.now() - tik).total_seconds())))
             sql_file = open(project_path+"\\postgres\\edgar_push_stage_final.sql")
             text_sql = text(sql_file.read())
