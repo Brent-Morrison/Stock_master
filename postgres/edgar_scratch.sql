@@ -50,6 +50,7 @@ from pg_depend
 where refobjid = 'reference.ticker_cik_sic_ind'::regclass and deptype = 'n';
 
 
+-- Retrieving distinct schema and view names for views that depend on the table 'reference.fundamental_universe'
 select distinct n.nspname as schema_name, c.relname as view_name
 from pg_depend d
 join pg_rewrite w on w.oid = d.objid
@@ -217,6 +218,8 @@ order by 1,2 desc
 
 select * from test.tickers_to_update
 
+
+
 /***************************************************************************************************************************
 * 
 * USEFUL QUERIES (test data)
@@ -237,30 +240,76 @@ select * from information_schema.columns where table_name = 'shareprices_daily_t
 
 select * from reference.fundamental_universe order by 2,1
 
+
+
+/***************************************************************************************************************************
+* 
+* DUPLICATE CHECKS
+* 
+***************************************************************************************************************************/
+
+select * from reference.fundamental_universe
+
+-- Remove duplicates from 'active_delisted'
+select * from 
+(
+	select
+	ad.*
+	,count(*) over (partition by symbol, exchange, status) as n
+	from alpha_vantage.active_delisted ad
+) t1
+where n > 1
+
+delete 
+from alpha_vantage.active_delisted t1
+using alpha_vantage.active_delisted t2
+where t1.ctid < t2.ctid
+and t1.symbol = t2.symbol
+and t1.exchange = t2.exchange
+and t1.status = t2.status
+
+
+
+-- Remove duplicates from 'company_tickers'
+select count(*) from edgar.company_tickers
+
 select * from 
 (
 	select 
 	ct.* 
-	,count(*) over (partition by cik_str, ticker, title) as dupes
+	,count(*) over (partition by cik_str, ticker, title) as n
 	from edgar.company_tickers ct
 ) t1
-where dupes > 1
+where n > 1
+
+delete 
+from edgar.company_tickers t1
+using edgar.company_tickers t2
+where t1.ctid < t2.ctid
+and t1.cik_str = t2.cik_str
+and t1.ticker = t2.ticker
+and t1.title = t2.title
 
 
--- REMOVE DUPLICATES
-delete
+
+-- Remove duplicates from 'fundamental_attributes'
+select * from 
+(
+	select * 
+	,count(*) over (partition by ticker, date_stamp) as n
+	from access_layer.fundamental_attributes
+) t1 where n > 1
+
+delete 
 from access_layer.fundamental_attributes t1
 using access_layer.fundamental_attributes t2
 where t1.ctid < t2.ctid
---and t1.cik_str = t2.cik_str
 and t1.ticker = t2.ticker
 and t1.date_stamp = t2.date_stamp
 
 
 
-select * from alpha_vantage.active_delisted
 
-select * from reference.fundamental_universe
 
 
 
@@ -364,8 +413,11 @@ order by last_date_in_db desc, symbol asc
 select * from alpha_vantage.returns_view
 
 select * from edgar.company_tickers where cik_str in (1646972, 1161154, 1037676) or ticker in ('ARCH','ACI') or title like '%arch%'
-select distinct capture_date from edgar.company_tickers
-select * from alpha_vantage.active_delisted where symbol in ('ACI','ARCH','ETP','ARRHW')
+select capture_date, count(*) as n from edgar.company_tickers group by 1 order by 1
+select capture_date, count(*) as n from alpha_vantage.active_delisted group by 1 order by 1 --where symbol in ('ACI','ARCH','ETP','ARRHW')
+select * from alpha_vantage.active_delisted where delist_date > '2023-02-06' and delist_date != '9998-12-31'
+select * from alpha_vantage.active_delisted where capture_date = '2023-02-06' order by 1, 3, 6
+select symbol, exchange, status, count(*) as n from alpha_vantage.active_delisted where capture_date = '2023-02-06' group by 1,2,3
 select * from  edgar.edgar_fndmntl_fltr_fn(nonfin_cutoff => 1350, fin_cutoff => 150 ,qrtr => '2022%q3', bad_data_fltr => false) where cik in (1037676,1161154,1646972)
 
 --------------------------------------------------	
@@ -746,7 +798,7 @@ order by 1, 2 desc
 
 select * from edgar.qrtly_fndmntl_ts_fn(valid_year_param_ => 2022, nonfin_cutoff_ => 925, fin_cutoff_ => 125) where ticker_ in ('ABG','AYI')
 
-select * from access_layer.tickers_to_update_fn(valid_year_param => 2022, nonfin_cutoff => 950, fin_cutoff => 150)
+select * from access_layer.tickers_to_update_fn(valid_year_param => 2024, nonfin_cutoff => 950, fin_cutoff => 150)
 
 create extension fuzzystrmatch;
 select levenshtein('Albertsons Companies, Inc.', 'ARCH COAL INC')
@@ -784,7 +836,7 @@ from
 			select distinct on (cik) fn.* 
 			--select distinct cik, sic, filed
 			from edgar.edgar_fndmntl_fltr_fn(nonfin_cutoff => 1350, fin_cutoff => 150 ,qrtr => '%q3', bad_data_fltr => false) fn
-			where sec_qtr = '2022q3'
+			where sec_qtr = '2023q3'
 			order by cik, ddate
 		) fn  -- multiple quarterly results submitted in the one quarter
 	left join 
@@ -853,7 +905,7 @@ from
 	,total_equity	
 	,combined_rank	
 	from edgar.edgar_fndmntl_fltr_fn(nonfin_cutoff => 1350, fin_cutoff => 150 ,qrtr => '%q3', bad_data_fltr => false)
-	where sec_qtr = '2022q3'	
+	where sec_qtr = '2023q3'	
 ) f
 order by cik, valid_year asc
 
@@ -866,7 +918,7 @@ select * from alpha_vantage.active_delisted where symbol in ('ABMD','ACI','AIG',
 select * from simfin.us_companies where ticker in ('ABMD','ACI','AIG','ALF','ALQ','ALZ','ARCH','AVF','CFX','CFXA','ENOV','ETP','FB','META','WEBR') order by 1
 select * from edgar.company_tickers where ticker in ('ABMD','ACI','AIG','ALF','ALQ','ALZ','ARCH','AVF','CFX','CFXA','ENOV','ETP','FB','META','WEBR') or cik_str in (3153,5272,1420800) order by 1
 select * from reference.ticker_cik_sic_ind where ticker in ('ATH','ACI','ARCH','DELL','FB','META','ETP')
-select * from access_layer.tickers_to_update_fn(valid_year_param => 2022, nonfin_cutoff => 950, fin_cutoff => 150) where symbol_ in ('ATH','ACI','ARCH','CXP','DELL','FB','META','ETP')
+select * from access_layer.tickers_to_update_fn(valid_year_param => 2024, nonfin_cutoff => 950, fin_cutoff => 150) where symbol_ in ('ATH','ACI','ARCH','CXP','DELL','FB','META','ETP')
 
 delete
 from simfin.us_companies t1
@@ -1033,62 +1085,104 @@ where '1996-01-31'::date between min_date and max_date
 order by min_date DESC
 
 
---=======================================================================================================================
--- Show table
---=======================================================================================================================
---drop index reference.permno_idx reference.signed_predictors_dl_wide
 
-ALTER TABLE reference.datashare RENAME TO eapvml; --
-ALTER TABLE reference.signed_predictors_dl_wide RENAME TO osap; --
+
+
+/***************************************************************************************************************************
+* 
+* Academic stock data
+* 
+***************************************************************************************************************************/
+
+-- Retrieve object description
+select obj_description('reference.eapvml'::regclass, 'pg_class');
+select obj_description('reference.osap'::regclass, 'pg_class');
+select obj_description('reference.permno_ticker_iw'::regclass, 'pg_class');
 
 create index eapvml_permno_idx on reference.eapvml (permno)
 create index osap_permno_idx on reference.osap (permno)
 
 /*-------------------------------------------------------------------------------------------------
 ##### EAPVML table #####
-https://www.crsp.org/products/documentation/stkquery-stock-data-access (AAPL = 14593 / MSFT = 10107 / AMBC = 12491
+C:\Users\brent\Documents\TRADING_Current\EmpiricalAssetPricingViaMachineLearning.xlsx
+https://www.crsp.org/products/documentation/stkquery-stock-data-access (AAPL = 14593 / MSFT = 10107 / AMBC = 12491)
 
 https://www.sec.gov/Archives/edgar/data/320193/000032019318000145/a10-k20189292018.htm
+https://www.sec.gov/Archives/edgar/data/789019/000156459020034944/msft-10k_20200630.htm
     mvel1 /sep 	  sp / mar	   sales /
    790,050,073 	0.29015122	 229,234 
  1,073,390,566 	0.24721570	 265,359 (sept 2018 / mar 2019 / ye sep 2018), therefore lag 
  
- ISSUES
- BM is prepared on different basis to other annual ratios such as SP
+ISSUES
+BM is prepared on different basis to other annual ratios such as SP
+ 
+https://dachxiu.chicagobooth.edu/download/datashare.zip (eapvml)
 
 ---------------------------------------------------------------------------------------------------*/
+
+-- Get academic data attributes
 drop table if exists eo;
 
 create temporary table eo as 
 (
-	select e.permno, e.date_stamp, e.mvel1, e.sp, e.ep, e.cfp, e.salecash, e.lev, e.bm, o.bm as bm_o, e.gma, o.gp, e.saleinv, salerec
-	from reference.eapvml e
-	left join reference.osap o
-	on  e.date_stamp = o.date_stamp 
-	and e.permno     = o.permno
-	where e.permno in (14593, 10107) -- AAPL / MSFT
+select t1.* from 
+	(
+		select e.permno, e.date_stamp, e.mvel1, e.sp, e.ep, e.cfp, e.salecash, e.lev, o.leverage, e.bm, o.bm as bm_o, e.gma, o.gp, e.saleinv, e.salerec
+		,row_number() over (partition by e.date_stamp order by e.mvel1 desc) as mkt_cap_rank
+		from reference.eapvml e
+		left join reference.osap o
+		on  e.date_stamp = o.date_stamp 
+		and e.permno     = o.permno
+		where 1 = 1  
+		and e.date_stamp > '1979-12-31'::date
+		and e.mvel1 is not null
+		--and e.permno in (14593, 10107) -- AAPL / MSFT
+	) t1
+where mkt_cap_rank <= 1500
 );
 
-
+select * from eo where permno = 14593;
 
 with t1 as 
-(
-	select permno, date_stamp, mvel1, sp, ep, cfp, salecash, lev, bm, bm_o, gma, gp, saleinv, salerec
+(	-- create fiscal month with partition over random attribute (using "sp", could have used "ep" for example) 
+	-- that is returned on a lagged annual basis
+	select 
+	permno
+	,date_stamp
+	,mvel1
+	,mkt_cap_rank
+	,sp
+	,ep
+	,cfp
+	,lev
+	,leverage
+	,bm
+	,bm_o
+	,gma
+	,gp
+	-- capture division by 0 error
+	,case when salecash = 0 then 999 else salecash end as salecash
+	,case when saleinv  = 0 then 999 else saleinv  end as saleinv
+	,case when salerec  = 0 then 999 else salerec  end as salerec
 	,row_number() over (partition by permno, sp order by date_stamp) as fiscal_month1
-	from eo
+	from eo 
+	--where permno in (15222, 28302, 14593) -- 15222 is 0 salecash and NULL saleinv
+	order by date_stamp
 )
 
 ,t2 as 
-(
+(	-- adjust fiscal month so that last month in fiscal year is 12
 	select t1.*
 	,lag(fiscal_month1, 7) over (partition by permno order by date_stamp) as fiscal_month
 	from t1
 )
 
 ,t3 as 
-(
+(	-- infer values from ratios and prior year end market cap.
+	-- note differing values returned by "bm" across eapvml and osap
 	select 
-	permno, date_stamp, round(mvel1/1000) as mkt_cap --, t2.*
+	t2.*
+	,round(mvel1/1000) as mkt_cap
 	,round(lag(mvel1, (case when fiscal_month > 5 then fiscal_month else fiscal_month + 12 end)::int) over (partition by permno order by date_stamp) / 1000) as mvel_ye
 	,round(sp  * (lag(mvel1, (case when fiscal_month > 5 then fiscal_month else fiscal_month + 12 end)::int) over (partition by permno order by date_stamp) / 1000)) as sales_i 
 	,round(ep  * (lag(mvel1, (case when fiscal_month > 5 then fiscal_month else fiscal_month + 12 end)::int) over (partition by permno order by date_stamp) / 1000)) as net_income_annl_i
@@ -1097,30 +1191,44 @@ with t1 as
 	,round(sp  * (lag(mvel1, (case when fiscal_month > 5 then fiscal_month else fiscal_month + 12 end)::int) over (partition by permno order by date_stamp) / 1000) / saleinv) as inventory_i 
 	,round(sp  * (lag(mvel1, (case when fiscal_month > 5 then fiscal_month else fiscal_month + 12 end)::int) over (partition by permno order by date_stamp) / 1000) / salerec) as receivables_i 
 	,round(lev * (lag(mvel1, (case when fiscal_month > 5 then fiscal_month else fiscal_month + 12 end)::int) over (partition by permno order by date_stamp) / 1000)) as total_liab_i 
-	,round(bm  * (lag(mvel1, (case when fiscal_month > 5 then fiscal_month else fiscal_month + 12 end)::int) over (partition by permno order by date_stamp) / 1000)) as total_equity_i -- different basis
+	,round(bm  * (lag(mvel1, (case when fiscal_month > 5 then fiscal_month else fiscal_month + 12 end)::int) over (partition by permno order by date_stamp) / 1000)) as total_equity_i 
 	,round(exp(bm_o) * (mvel1 / 1000)) as total_equity_io
-	,saleinv
-	,gp
 	from t2
 	order by permno, date_stamp
 )
+
 select 
-t3.*
---permno
-,min((date_stamp - interval '6 month')::date) over (partition by mvel_ye) as report_date
-,total_liab_i + total_equity_io as total_assets_i 
-,round(sales_i - ((total_liab_i + total_equity_io) * gp)) as cogs_i
+--t3.*
+permno, date_stamp, mkt_cap, mkt_cap_rank
+,min((date_stamp + interval '6 month')::date) over (partition by mvel_ye, permno) 		as report_date
+,lag(sales_i, -2) over (partition by permno order by date_stamp) 						as sales_i
+,lag(round(sales_i - ((total_liab_i + total_equity_io) * gp)), -2) over (partition by permno order by date_stamp) as cogs_i  -- incorrect
+,lag(net_income_annl_i, -2) over (partition by permno order by date_stamp) 				as net_income_annl_i
+,lag(oper_cflow_i, -2) over (partition by permno order by date_stamp) 					as oper_cflow_i
+,lag(round(leverage * mkt_cap), -2) over (partition by permno order by date_stamp)		as total_liab_i 		-- from query below
+,lag(total_equity_io, -2) over (partition by permno order by date_stamp) 				as total_equity_i
+,lag(total_liab_i + total_equity_io, -2) over (partition by permno order by date_stamp)	as total_assets_i 
+,case when salecash = 999 then null else 
+	lag(cash_i, -2) over (partition by permno order by date_stamp) end 					as cash_i				-- introduces division by zero
+,case when saleinv = 999 then null else
+	lag(inventory_i, -2) over (partition by permno order by date_stamp) end				as inventory_i			-- introduces division by zero
+,case when salerec = 999 then null else
+	lag(receivables_i, -2) over (partition by permno order by date_stamp) end			as receivables_i		-- introduces division by zero
 from t3
 order by permno, date_stamp
 
 
 -------------------------
 
+
 select distinct on (date_stamp) date_stamp, permno from reference.osap order by date_stamp
 select permno, date_stamp, sp from reference.eapvml where permno in (14593, 10107)  AAPL  
 
+
 -------------------------
 
+
+-- Compare inferred balances from the academic data to that collected from the SEC
 select 
 o.date_stamp 
 ,case when extract(month from o.date_stamp) = 3 then 1 else 0 end as mon
@@ -1135,16 +1243,17 @@ o.date_stamp
 ,o.bm
 ,o.bmdec */
 ,fa.total_equity
-,round(exp(o.bm) * (e.mvel1 / 1000)) as total_equity_i
+,lag(round(exp(o.bm) * (e.mvel1 / 1000)), -2) over (order by o.date_stamp) as total_equity_i
 ,o.leverage  -- different to below
 ,e.lev		 -- different to above
-,total_liab
-,round(o.leverage * (e.mvel1 / 1000)) as total_liab_i
-,round(o.cfp * (e.mvel1 / 1000)) as oper_cflow_i
-,ttm_earnings
-,round(o.ep * (e.mvel1 / 1000)) as earnings_i
+,fa.total_liab
+,lag(round(o.leverage * (e.mvel1 / 1000)), -2) over (order by o.date_stamp) as total_liab_i
+,lag(round(o.cfp * (e.mvel1 / 1000)), -2) over (order by o.date_stamp) as oper_cflow_i
+,fa.ttm_earnings
+,lag(round(o.ep * (e.mvel1 / 1000)), -2) over (order by o.date_stamp) as earnings_i
+,lag(round(e.ep * (e.mvel1 / 1000)), -2) over (order by o.date_stamp) as earnings_ie
 ,e.sp as sales_price
-,round(e.sp * (e.mvel1 / 1000)) as sales_i
+,lag(round(e.sp * (e.mvel1 / 1000)), -2) over (order by o.date_stamp) as sales_i
 --,e.dolvol
 --,o.dolvol
 from reference.eapvml e
@@ -1152,7 +1261,7 @@ full outer join reference.osap o
 on  e.date_stamp = o.date_stamp 
 and e.permno     = o.permno 
 left join 
-(
+(	-- Monthly close
 	select 
 	spd.symbol 
 	,(date_trunc('month', spd.date_stamp) + interval '1 month - 1 day')::date as date_stamp
@@ -1160,7 +1269,7 @@ left join
 	,spd.adjusted_close 
 	from access_layer.shareprices_daily spd
 	inner join 
-	(
+	(	-- Last trade date for each month
 		select 
 		max(date_stamp) as last_trade_date
 		from access_layer.shareprices_daily
@@ -1173,7 +1282,7 @@ left join
 ) sp
 on e.date_stamp = sp.date_stamp
 left join 
-(
+(	-- fundamental data from SEC
 	select
 	date_stamp 
 	,fiscal_year 
@@ -1191,42 +1300,28 @@ where e.permno = 14593 or o.permno = 14593
 
 ---------------------------------------------------------------------------------------------------
 	
-select 
-spd.symbol 
-,spd.date_stamp as ds_old
-,(date_trunc('month', spd.date_stamp) + interval '1 month - 1 day')::date as date_stamp
-,spd.adjusted_close 
-from access_layer.shareprices_daily spd
-inner join 
+-- Find the top n stocks in the academic data by mkt cap, join price data and 
+-- expose missing price data via nulls in "adjusted_close"
+select date_stamp, ticker, permno, mkt_cap, mkt_cap_rank, adjusted_close from 
 (
 	select 
-	max(date_stamp) as last_trade_date
-	from access_layer.shareprices_daily
-	where symbol = 'GSPC'
-	group by date_trunc('month', date_stamp) 	
-) ltd
-on spd.date_stamp = ltd.last_trade_date
-where symbol = 'AAPL'
-order by date_stamp 
-
-
-select 
-e.date_stamp
-,e.permno 
-,pt.ticker 
-,round(e.mvel1 / 1000) as mkt_cap
-,spd.adjusted_close 
-,row_number() over (partition by e.date_stamp order by e.mvel1 desc) as mkt_cap_rank
-from reference.eapvml e
-left join reference.permno_ticker_iw pt 
-on e.permno = pt.permno 
-left join access_layer.shareprices_daily spd 
-on pt.ticker = spd.symbol 
-and e.date_stamp = spd.date_stamp 
-where e.date_stamp between '2020-09-30'::date and '2021-09-30'::date
-and pt.ticker != 'no_data'
-and pt.max_date = '2021-12-31'::date
-
+	e.date_stamp
+	,e.permno 
+	,pt.ticker 
+	,round(e.mvel1 / 1000) as mkt_cap
+	,spd.adjusted_close 
+	,row_number() over (partition by e.date_stamp order by e.mvel1 desc) as mkt_cap_rank
+	from reference.eapvml e
+	left join reference.permno_ticker_iw pt 
+	on e.permno = pt.permno 
+	left join access_layer.shareprices_daily spd 
+	on pt.ticker = spd.symbol 
+	and e.date_stamp = spd.date_stamp 
+	where e.date_stamp between '2020-09-30'::date and '2021-09-30'::date
+	and pt.ticker != 'no_data'
+	and pt.max_date = '2021-12-31'::date
+) t1
+where mkt_cap_rank <= 750
 
 select date_stamp, ticker, mom1m, retvol from 
 (
@@ -1286,3 +1381,21 @@ select distinct sec_qtr from edgar.edgar_fndmntl_all_tb
 )
 select * from edgar.edgar_fndmntl_all_vw 
 where sec_qtr = '2023q2'
+
+
+select 
+length(ticker)
+,ticker
+,
+
+		select 
+		length(tcsi.ticker), fu.*, tcsi.* 
+		from reference.fundamental_universe fu
+		inner join reference.ticker_cik_sic_ind tcsi 
+		on fu.cik = tcsi.cik 
+		where fu.valid_year = 2024  -- Parameter
+		and ( 
+			(fu.fin_nonfin  = 'financial' and fu.combined_rank <= 150) or 
+			(fu.fin_nonfin != 'financial' and fu.combined_rank <= 950)
+			)
+		and tcsi.delist_date = '9998-12-31'

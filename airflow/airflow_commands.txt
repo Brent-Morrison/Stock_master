@@ -1,0 +1,37 @@
+# Start up
+sudo service postgresql start
+airflow db init
+airflow scheduler
+airflow webserver (new Ubuntu window)
+
+http://localhost:8080/home
+
+# R script to check database status
+scratch.r file in postgres project
+
+# Airflow location
+cd /c/Users/brent/AirflowHome
+
+# Open VS Code
+code .
+
+# Bash command
+/c/Windows/System32/cmd.exe /c C:/Users/brent/Documents/bat_py_test.bat
+
+
+# pg_dump
+cd C:\Program Files\PostgreSQL\12\bin
+>pg_dump -U postgres -Fc stock_master > E:/stock_master_20220314.dump
+pg_dump -Fc -h localhost -U postgres -p 5432 --schema-only stock_master > C:/Users/brent/Documents/VS_Code/postgres/postgres/reference/stock_master_backup.sql
+
+
+# Auto starting Airflow 
+https://medium.com/@achilleus/easy-way-to-manage-your-airflow-setup-b7c030dd1cb8
+https://yorkhuang-au.github.io/2021/08/29/Set-up-airflow-autostart/
+https://medium.com/@shahbaz.ali03/run-apache-airflow-as-a-service-on-ubuntu-18-04-server-b637c03f4722
+https://devblogs.microsoft.com/commandline/systemd-support-is-now-available-in-wsl/
+https://www.thewindowsclub.com/enable-systemd-in-windows-subsystem-for-linux
+
+# How to close Airflow
+sudo kill -9 <pid no>
+
